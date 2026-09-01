@@ -1,4 +1,4 @@
-const { verifyAccessToken } = require('../utils/tokens');
+const { verifyAccessToken } = require('./utils/tokens');
 
 // Reads the access token from the Authorization header (Bearer <token>).
 // We deliberately do NOT read it from a cookie: the access token lives in
