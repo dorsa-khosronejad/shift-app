@@ -3,14 +3,14 @@ const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 
-const db = require('../db/database');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const db = require('./db/database');
+const { requireAuth, requireRole } = require('./middleware/auth');
 const {
   signAccessToken,
   generateRefreshToken,
   hashRefreshToken,
   REFRESH_TOKEN_TTL_MS,
-} = require('../utils/tokens');
+} = require('./utils/tokens');
 
 const router = express.Router();
 
