@@ -1,0 +1,6 @@
+node_modules/
+.env
+db/shifts.db
+db/shifts.db-wal
+db/shifts.db-shm
+backups/

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift &amp; Care · Team</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-brand">
+      <span class="mark"></span>
+      <h2>Shift &amp; Care</h2>
+    </div>
+    <div class="topbar-user">
+      <span id="userName">—</span>
+      <span class="role-badge">Manager</span>
+      <button class="btn-outline" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <div class="panel">
+      <h3>Team shifts</h3>
+      <p style="margin:0 0 12px">Most recent 200 entries across all staff.</p>
+      <table>
+        <thead><tr><th>Staff</th><th>Department</th><th>Clocked in</th><th>Clocked out</th><th>Duration</th></tr></thead>
+        <tbody id="teamBody"></tbody>
+      </table>
+      <div class="empty-state hidden" id="teamEmpty">No shifts logged yet.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Reports from staff</h3>
+      <p style="margin:0 0 12px">Workload, ergonomics, and incident flags.</p>
+      <table>
+        <thead><tr><th>Staff</th><th>Category</th><th>Description</th><th>Status</th><th></th></tr></thead>
+        <tbody id="reportsBody"></tbody>
+      </table>
+      <div class="empty-state hidden" id="reportsEmpty">Nothing reported yet.</div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+async function init() {
+  const user = await requireSession(['manager', 'admin']);
+  if (!user) return;
+  document.getElementById('userName').textContent = user.name;
+  await loadTeam();
+  await loadReports();
+}
+
+async function loadTeam() {
+  const res = await apiFetch('/shifts/team');
+  const { entries } = await res.json();
+  const body = document.getElementById('teamBody');
+  const empty = document.getElementById('teamEmpty');
+  body.innerHTML = '';
+
+  if (!entries.length) { empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+
+  for (const e of entries) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${e.user_name}</td>
+      <td>${e.department}</td>
+      <td>${formatDateTime(e.clock_in)}</td>
+      <td>${e.clock_out ? formatDateTime(e.clock_out) : '—'}</td>
+      <td>${formatDuration(e.clock_in, e.clock_out)}</td>
+    `;
+    body.appendChild(tr);
+  }
+}
+
+async function loadReports() {
+  const res = await apiFetch('/users/wellbeing-reports');
+  const { reports } = await res.json();
+  const body = document.getElementById('reportsBody');
+  const empty = document.getElementById('reportsEmpty');
+  body.innerHTML = '';
+
+  if (!reports.length) { empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+
+  for (const r of reports) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.user_name}</td>
+      <td style="text-transform:capitalize">${r.category}</td>
+      <td>${r.description}</td>
+      <td><span class="tag tag-${r.status}">${r.status}</span></td>
+      <td>
+        ${r.status !== 'resolved'
+          ? `<button class="btn-outline" style="padding:5px 10px;font-size:13px" data-id="${r.id}" data-next="${r.status === 'open' ? 'acknowledged' : 'resolved'}">
+               ${r.status === 'open' ? 'Acknowledge' : 'Resolve'}
+             </button>`
+          : ''}
+      </td>
+    `;
+    body.appendChild(tr);
+  }
+
+  body.querySelectorAll('button[data-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/users/wellbeing-reports/${btn.dataset.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: btn.dataset.next }),
+      });
+      await loadReports();
+    });
+  });
+}
+
+init();
+</script>
+</body>
+</html>

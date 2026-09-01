@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #F5F6F3;
+  --panel: #FFFFFF;
+  --ink: #1F2A24;
+  --ink-soft: #55625A;
+  --border: #DADFDA;
+  --pine: #2A5647;
+  --pine-hover: #234639;
+  --sage: #6E8C7D;
+  --rust: #A85C32;
+  --rust-bg: #F6E9DF;
+  --success: #3C6E47;
+  --success-bg: #E5EFE6;
+  --error: #A6403A;
+  --error-bg: #F7E7E5;
+  --radius: 6px;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--font-display); margin: 0 0 4px 0; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0 0 12px 0; color: var(--ink-soft); }
+a { color: var(--pine); }
+
+/* ---------- Layout ---------- */
+
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-brand { display: flex; align-items: baseline; gap: 10px; }
+.topbar-brand .mark { width: 10px; height: 10px; background: var(--pine); display: inline-block; border-radius: 2px; }
+.topbar-brand h2 { font-size: 18px; }
+.topbar-user { display: flex; align-items: center; gap: 14px; font-size: 14px; color: var(--ink-soft); }
+.role-badge {
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--pine);
+  color: #fff;
+  font-weight: 500;
+}
+
+.main {
+  flex: 1;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 24px 60px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.panel-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+
+/* ---------- Forms ---------- */
+
+label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--ink); }
+
+input, select, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 15px;
+  background: #fff;
+  color: var(--ink);
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--pine);
+  box-shadow: 0 0 0 3px rgba(42, 86, 71, 0.12);
+}
+
+.field { margin-bottom: 16px; }
+
+button {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: var(--radius);
+  border: none;
+  padding: 11px 20px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-primary { background: var(--pine); color: #fff; }
+.btn-primary:hover { background: var(--pine-hover); }
+.btn-primary:disabled { background: var(--sage); cursor: not-allowed; }
+
+.btn-danger { background: var(--error-bg); color: var(--error); }
+.btn-danger:hover { background: #f0d3d0; }
+
+.btn-outline { background: transparent; color: var(--pine); border: 1px solid var(--pine); }
+.btn-outline:hover { background: #eef3f1; }
+
+.btn-block { width: 100%; }
+
+/* ---------- Alerts ---------- */
+
+.alert { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; margin-bottom: 16px; }
+.alert-error { background: var(--error-bg); color: var(--error); }
+.alert-success { background: var(--success-bg); color: var(--success); }
+.alert-hidden { display: none; }
+
+/* ---------- Login page ---------- */
+
+.login-wrap { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+.login-brand {
+  background: var(--pine);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px;
+}
+.login-brand .clock { font-family: var(--font-display); font-size: 64px; font-weight: 700; letter-spacing: -0.02em; }
+.login-brand p { color: #CFE0D6; max-width: 340px; }
+.login-form-side { display: flex; align-items: center; justify-content: center; padding: 40px; }
+.login-card { width: 100%; max-width: 360px; }
+.login-card h1 { font-size: 24px; margin-bottom: 6px; }
+.login-card > p { margin-bottom: 24px; }
+
+.demo-hint {
+  margin-top: 24px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.demo-hint code { background: var(--bg); padding: 1px 5px; border-radius: 3px; }
+
+@media (max-width: 760px) {
+  .login-wrap { grid-template-columns: 1fr; }
+  .login-brand { padding: 40px 28px; }
+  .login-brand .clock { font-size: 42px; }
+}
+
+/* ---------- Clock widget ---------- */
+
+.clock-status { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.clock-status .status-text { font-size: 14px; color: var(--ink-soft); }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.on { background: var(--success); }
+.status-dot.off { background: var(--ink-soft); }
+
+/* ---------- Tables ---------- */
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+th { color: var(--ink-soft); font-weight: 500; font-size: 12.5px; text-transform: none; }
+tr:last-child td { border-bottom: none; }
+
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 500; }
+.tag-open { background: var(--rust-bg); color: var(--rust); }
+.tag-resolved { background: var(--success-bg); color: var(--success); }
+.tag-acknowledged { background: #EEF0E4; color: var(--sage); }
+
+.empty-state { color: var(--ink-soft); font-size: 14px; padding: 20px 0; text-align: center; }
+
+/* ---------- Nav tabs (admin) ---------- */
+
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.tab-btn {
+  background: none; color: var(--ink-soft); font-weight: 500; padding: 10px 4px;
+  border-radius: 0; border-bottom: 2px solid transparent; margin-right: 20px;
+}
+.tab-btn.active { color: var(--pine); border-bottom-color: var(--pine); }
+
+.hidden { display: none !important; }
+
+.helper-text { font-size: 12.5px; color: var(--ink-soft); margin-top: -10px; margin-bottom: 16px; }

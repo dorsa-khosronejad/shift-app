@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift &amp; Care · My shifts</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-brand">
+      <span class="mark"></span>
+      <h2>Shift &amp; Care</h2>
+    </div>
+    <div class="topbar-user">
+      <span id="userName">—</span>
+      <span class="role-badge">Employee</span>
+      <button class="btn-outline" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Your shift</h3>
+          <p style="margin:0">Replaces the paper sheet at reception.</p>
+        </div>
+      </div>
+
+      <div class="alert alert-error alert-hidden" id="clockError"></div>
+
+      <div class="clock-status">
+        <div class="status-text" id="statusText">
+          <span class="status-dot off"></span> Checking status…
+        </div>
+        <button class="btn-primary" id="clockBtn" disabled>—</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Recent shifts</h3>
+      <table>
+        <thead><tr><th>Clocked in</th><th>Clocked out</th><th>Duration</th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+      <div class="empty-state hidden" id="historyEmpty">No shifts logged yet.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Flag something</h3>
+          <p style="margin:0">Workload, ergonomics, or a safety incident — this goes straight to your manager.</p>
+        </div>
+      </div>
+
+      <div class="alert alert-success alert-hidden" id="reportSuccess">Sent to your manager.</div>
+
+      <form id="reportForm">
+        <div class="field">
+          <label for="category">Category</label>
+          <select id="category">
+            <option value="workload">Workload — too much for the shift</option>
+            <option value="ergonomics">Ergonomics — physical strain, equipment</option>
+            <option value="incident">Incident — something happened</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="description">What's going on?</label>
+          <textarea id="description" rows="3" required placeholder="Briefly describe it — no need for medical details, just what happened and where."></textarea>
+        </div>
+        <button type="submit" class="btn-outline">Send to manager</button>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+let currentlyClockedIn = false;
+
+async function init() {
+  const user = await requireSession(['employee', 'manager', 'admin']);
+  if (!user) return;
+  document.getElementById('userName').textContent = user.name;
+  await loadStatus();
+}
+
+async function loadStatus() {
+  const res = await apiFetch('/shifts/mine');
+  const data = await res.json();
+  currentlyClockedIn = data.currentlyClockedIn;
+  renderStatus();
+  renderHistory(data.entries);
+}
+
+function renderStatus() {
+  const statusText = document.getElementById('statusText');
+  const btn = document.getElementById('clockBtn');
+  btn.disabled = false;
+
+  if (currentlyClockedIn) {
+    statusText.innerHTML = '<span class="status-dot on"></span> You are clocked in';
+    btn.textContent = 'Clock out';
+    btn.className = 'btn-danger';
+  } else {
+    statusText.innerHTML = '<span class="status-dot off"></span> You are clocked out';
+    btn.textContent = 'Clock in';
+    btn.className = 'btn-primary';
+  }
+}
+
+function renderHistory(entries) {
+  const body = document.getElementById('historyBody');
+  const empty = document.getElementById('historyEmpty');
+  body.innerHTML = '';
+
+  if (!entries.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  for (const e of entries) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${formatDateTime(e.clock_in)}</td>
+      <td>${e.clock_out ? formatDateTime(e.clock_out) : '—'}</td>
+      <td>${formatDuration(e.clock_in, e.clock_out)}</td>
+    `;
+    body.appendChild(tr);
+  }
+}
+
+document.getElementById('clockBtn').addEventListener('click', async () => {
+  const errorBox = document.getElementById('clockError');
+  errorBox.classList.add('alert-hidden');
+  const btn = document.getElementById('clockBtn');
+  btn.disabled = true;
+
+  const endpoint = currentlyClockedIn ? '/shifts/clock-out' : '/shifts/clock-in';
+  const res = await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({}) });
+  const data = await res.json();
+
+  if (!res.ok) {
+    errorBox.textContent = data.error || 'Could not update your shift.';
+    errorBox.classList.remove('alert-hidden');
+    btn.disabled = false;
+    return;
+  }
+
+  await loadStatus();
+});
+
+document.getElementById('reportForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const successBox = document.getElementById('reportSuccess');
+  successBox.classList.add('alert-hidden');
+
+  const res = await apiFetch('/users/wellbeing-reports', {
+    method: 'POST',
+    body: JSON.stringify({
+      category: document.getElementById('category').value,
+      description: document.getElementById('description').value,
+    }),
+  });
+
+  if (res.ok) {
+    document.getElementById('description').value = '';
+    successBox.classList.remove('alert-hidden');
+  }
+});
+
+init();
+</script>
+</body>
+</html>

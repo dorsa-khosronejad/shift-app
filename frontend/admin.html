@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift &amp; Care · Admin</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="topbar">
+    <div class="topbar-brand">
+      <span class="mark"></span>
+      <h2>Shift &amp; Care</h2>
+    </div>
+    <div class="topbar-user">
+      <span id="userName">—</span>
+      <span class="role-badge">Admin</span>
+      <button class="btn-outline" onclick="logout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="staff">Staff accounts</button>
+      <button class="tab-btn" data-tab="new">Add staff member</button>
+    </div>
+
+    <div id="tab-staff">
+      <div class="panel">
+        <h3>All accounts</h3>
+        <table>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th></th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tab-new" class="hidden">
+      <div class="panel" style="max-width:440px">
+        <h3>Add a staff member</h3>
+        <p>Creates a login for them directly — no self sign-up, so the roster stays controlled.</p>
+
+        <div class="alert alert-error alert-hidden" id="createError"></div>
+        <div class="alert alert-success alert-hidden" id="createSuccess"></div>
+
+        <form id="createForm">
+          <div class="field">
+            <label for="name">Full name</label>
+            <input type="text" id="name" required>
+          </div>
+          <div class="field">
+            <label for="email">Work email</label>
+            <input type="email" id="email" required>
+          </div>
+          <div class="field">
+            <label for="department">Department</label>
+            <input type="text" id="department" value="Housekeeping">
+          </div>
+          <div class="field">
+            <label for="role">Role</label>
+            <select id="role">
+              <option value="employee">Employee</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="password">Temporary password</label>
+            <input type="password" id="password" required minlength="8">
+            <div class="helper-text">At least 8 characters, including a number. Share it with them securely — they should change it after first login.</div>
+          </div>
+          <button type="submit" class="btn-primary btn-block">Create account</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+async function init() {
+  const user = await requireSession(['admin']);
+  if (!user) return;
+  document.getElementById('userName').textContent = user.name;
+  await loadUsers();
+}
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-staff').classList.add('hidden');
+    document.getElementById('tab-new').classList.add('hidden');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.remove('hidden');
+  });
+});
+
+async function loadUsers() {
+  const res = await apiFetch('/users');
+  const { users } = await res.json();
+  const body = document.getElementById('usersBody');
+  body.innerHTML = '';
+
+  for (const u of users) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${u.name}</td>
+      <td>${u.email}</td>
+      <td style="text-transform:capitalize">${u.role}</td>
+      <td>${u.department}</td>
+      <td><span class="tag ${u.is_active ? 'tag-resolved' : 'tag-open'}">${u.is_active ? 'Active' : 'Deactivated'}</span></td>
+      <td>
+        <button class="btn-outline" style="padding:5px 10px;font-size:13px" data-id="${u.id}" data-next="${u.is_active ? 'false' : 'true'}">
+          ${u.is_active ? 'Deactivate' : 'Reactivate'}
+        </button>
+      </td>
+    `;
+    body.appendChild(tr);
+  }
+
+  body.querySelectorAll('button[data-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/users/${btn.dataset.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: btn.dataset.next === 'true' }),
+      });
+      await loadUsers();
+    });
+  });
+}
+
+document.getElementById('createForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorBox = document.getElementById('createError');
+  const successBox = document.getElementById('createSuccess');
+  errorBox.classList.add('alert-hidden');
+  successBox.classList.add('alert-hidden');
+
+  const res = await apiFetch('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: document.getElementById('name').value,
+      email: document.getElementById('email').value,
+      department: document.getElementById('department').value,
+      role: document.getElementById('role').value,
+      password: document.getElementById('password').value,
+    }),
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    errorBox.textContent = data.error || 'Could not create account.';
+    errorBox.classList.remove('alert-hidden');
+    return;
+  }
+
+  successBox.textContent = `Account created for ${data.name}.`;
+  successBox.classList.remove('alert-hidden');
+  document.getElementById('createForm').reset();
+  document.getElementById('department').value = 'Housekeeping';
+  await loadUsers();
+});
+
+init();
+</script>
+</body>
+</html>

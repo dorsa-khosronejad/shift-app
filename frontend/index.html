@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift &amp; Care · Sign in</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-brand">
+    <div class="clock" id="liveClock">--:--</div>
+    <p>Shift &amp; Care replaces the paper sign-in sheet at the front desk. Clock in, clock out, and flag anything that needs attention — all in one place.</p>
+  </div>
+
+  <div class="login-form-side">
+    <div class="login-card">
+      <h1>Sign in</h1>
+      <p>Use your work email and password.</p>
+
+      <div class="alert alert-error alert-hidden" id="loginError"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="email">Email</label>
+          <input type="email" id="email" required autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-primary btn-block" id="loginBtn">Sign in</button>
+      </form>
+
+      <div class="demo-hint">
+        Demo accounts (seeded automatically) —<br>
+        Admin: <code>admin@demo.local</code> / <code>Admin123!</code><br>
+        Manager: <code>manager@demo.local</code> / <code>Manager123!</code><br>
+        Employee: <code>employee@demo.local</code> / <code>Employee123!</code>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+function tick() {
+  document.getElementById('liveClock').textContent =
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+tick();
+setInterval(tick, 1000 * 30);
+
+const form = document.getElementById('loginForm');
+const errorBox = document.getElementById('loginError');
+const btn = document.getElementById('loginBtn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.classList.add('alert-hidden');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+      }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errorBox.textContent = data.error || 'Something went wrong. Try again.';
+      errorBox.classList.remove('alert-hidden');
+      return;
+    }
+
+    setSession(data.accessToken, data.user);
+    window.location.href = roleHome(data.user.role);
+  } catch (err) {
+    errorBox.textContent = 'Could not reach the server. Is the backend running?';
+    errorBox.classList.remove('alert-hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+});
+
+// If already logged in (valid refresh cookie), skip straight past login
+(async () => {
+  const refreshed = await tryRefresh();
+  if (refreshed) {
+    const meRes = await apiFetch('/auth/me');
+    if (meRes.ok) {
+      const { user } = await meRes.json();
+      window.location.href = roleHome(user.role);
+    }
+  }
+})();
+</script>
+
+</body>
+</html>
