@@ -1,4 +1,5 @@
 require('dotenv').config();
+// Force a fresh Railway rebuild with the correct backend root directory.
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
