@@ -32,7 +32,7 @@
       <div class="panel">
         <h3>All accounts</h3>
         <table>
-          <thead><tr><th>Name</th><th>Business ID</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Business ID</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th>Approval / role</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
       </div>
@@ -111,13 +111,11 @@ async function loadUsers() {
       <td>${u.name}</td>
       <td>${u.business_id || '—'}</td>
       <td>${u.email}</td>
-      <td style="text-transform:capitalize">${u.role}</td>
+      <td><select data-role-id="${u.id}"><option value="employee" ${u.role === 'employee' ? 'selected' : ''}>Employee</option><option value="manager" ${u.role === 'manager' ? 'selected' : ''}>Manager</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select></td>
       <td>${u.department}</td>
       <td><span class="tag ${u.is_active ? 'tag-resolved' : 'tag-open'}">${u.is_active ? 'Active' : 'Deactivated'}</span></td>
       <td>
-        <button class="btn-outline" style="padding:5px 10px;font-size:13px" data-id="${u.id}" data-next="${u.is_active ? 'false' : 'true'}">
-          ${u.is_active ? 'Deactivate' : 'Reactivate'}
-        </button>
+        <button class="btn-outline" style="padding:5px 10px;font-size:13px" data-id="${u.id}" data-next="${u.is_active ? 'false' : 'true'}">${u.is_active ? 'Deactivate' : 'Approve / reactivate'}</button>
       </td>
     `;
     body.appendChild(tr);
@@ -129,6 +127,16 @@ async function loadUsers() {
         method: 'PATCH',
         body: JSON.stringify({ is_active: btn.dataset.next === 'true' }),
       });
+      if (btn.dataset.next === 'true') {
+        const role = body.querySelector(`select[data-role-id="${btn.dataset.id}"]`).value;
+        await apiFetch(`/users/${btn.dataset.id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) });
+      }
+      await loadUsers();
+    });
+  });
+  body.querySelectorAll('select[data-role-id]').forEach((select) => {
+    select.addEventListener('change', async () => {
+      await apiFetch(`/users/${select.dataset.roleId}/role`, { method: 'PATCH', body: JSON.stringify({ role: select.value }) });
       await loadUsers();
     });
   });

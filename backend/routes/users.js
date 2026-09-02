@@ -44,6 +44,25 @@ router.patch(
   }
 );
 
+// ---------- PATCH /api/users/:id/role ----------
+// Only admins can grant manager/admin access.
+router.patch(
+  '/:id/role',
+  requireAuth,
+  requireRole('admin'),
+  [body('role').isIn(['employee', 'manager', 'admin'])],
+  (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid role' });
+    if (Number(req.params.id) === req.user.id && req.body.role !== 'admin') {
+      return res.status(400).json({ error: "You can't remove your own admin role" });
+    }
+    const result = db.prepare('UPDATE users SET role = ? WHERE id = ?').run(req.body.role, req.params.id);
+    if (!result.changes) return res.status(404).json({ error: 'Account not found' });
+    res.json({ message: 'Role updated' });
+  }
+);
+
 // ---------- Wellbeing reports (scoped, non-medical) ----------
 // Deliberately narrow: workload / ergonomics / incident flags only.
 // No symptom or diagnosis fields — that would be special-category health
