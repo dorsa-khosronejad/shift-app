@@ -203,6 +203,40 @@ router.post(
   }
 );
 
+// ---------- POST /api/auth/signup ----------
+// Public signup creates an inactive employee account for admin approval.
+router.post(
+  '/signup',
+  [
+    body('firstName').trim().isLength({ min: 2, max: 80 }),
+    body('familyName').trim().isLength({ min: 2, max: 80 }),
+    body('businessId').trim().isLength({ min: 2, max: 80 }),
+    body('email').isEmail().normalizeEmail(),
+    body('password')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters')
+      .matches(/\d/)
+      .withMessage('Password must contain a number'),
+  ],
+  (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter all details and use a password with 8+ characters and a number' });
+
+    const { firstName, familyName, businessId, email, password } = req.body;
+    const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existingBusinessId = db.prepare('SELECT id FROM users WHERE business_id = ?').get(businessId.trim());
+    if (existingEmail || existingBusinessId) return res.status(409).json({ error: 'That email or business ID is already registered' });
+
+    const hash = bcrypt.hashSync(password, 12);
+    const result = db.prepare(
+      `INSERT INTO users (name, business_id, email, password_hash, role, department, is_active)
+       VALUES (?, ?, ?, ?, 'employee', 'Housekeeping', 0)`
+    ).run(`${firstName.trim()} ${familyName.trim()}`, businessId.trim(), email, hash);
+
+    res.status(201).json({ id: result.lastInsertRowid, message: 'Signup received. An administrator must activate your account before you can sign in.' });
+  }
+);
+
 // ---------- POST /api/auth/change-password ----------
 router.post(
   '/change-password',

@@ -32,7 +32,7 @@
       <div class="panel">
         <h3>All accounts</h3>
         <table>
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Business ID</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th></th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
       </div>
@@ -109,6 +109,7 @@ async function loadUsers() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${u.name}</td>
+      <td>${u.business_id || '—'}</td>
       <td>${u.email}</td>
       <td style="text-transform:capitalize">${u.role}</td>
       <td>${u.department}</td>

@@ -9,7 +9,7 @@ const router = express.Router();
 // Admin only: list all staff accounts.
 router.get('/', requireAuth, requireRole('admin'), (req, res) => {
   const users = db
-    .prepare('SELECT id, name, email, role, department, is_active, created_at FROM users ORDER BY created_at DESC')
+    .prepare('SELECT id, name, business_id, email, role, department, is_active, created_at FROM users ORDER BY created_at DESC')
     .all();
   res.json({ users });
 });

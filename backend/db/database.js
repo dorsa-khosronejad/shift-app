@@ -14,6 +14,7 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
+  business_id TEXT,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('employee','manager','admin')) DEFAULT 'employee',
@@ -67,6 +68,11 @@ CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 `);
+
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name);
+if (!userColumns.includes('business_id')) {
+  db.exec('ALTER TABLE users ADD COLUMN business_id TEXT');
+}
 
 // ---------- Seed demo data (only if empty) ----------
 

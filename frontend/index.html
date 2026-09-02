@@ -16,8 +16,12 @@
 
   <div class="login-form-side">
     <div class="login-card">
-      <h1>Sign in</h1>
-      <p>Use your work email and password.</p>
+      <div class="tabs">
+        <button class="tab-btn active" type="button" id="signInTab">Sign in</button>
+        <button class="tab-btn" type="button" id="signUpTab">Create account</button>
+      </div>
+      <h1 id="formTitle">Sign in</h1>
+      <p id="formSubtitle">Use your work email and password.</p>
 
       <div class="alert alert-error alert-hidden" id="loginError"></div>
 
@@ -32,13 +36,15 @@
         </div>
         <button type="submit" class="btn-primary btn-block" id="loginBtn">Sign in</button>
       </form>
-
-      <div class="demo-hint">
-        Demo accounts (seeded automatically) —<br>
-        Admin: <code>admin@demo.local</code> / <code>Admin123!</code><br>
-        Manager: <code>manager@demo.local</code> / <code>Manager123!</code><br>
-        Employee: <code>employee@demo.local</code> / <code>Employee123!</code>
-      </div>
+      <form id="signupForm" class="hidden">
+        <div class="field"><label for="firstName">First name</label><input id="firstName" required autocomplete="given-name"></div>
+        <div class="field"><label for="familyName">Family name</label><input id="familyName" required autocomplete="family-name"></div>
+        <div class="field"><label for="businessId">Business ID</label><input id="businessId" required autocomplete="organization-title"></div>
+        <div class="field"><label for="signupEmail">Work email</label><input type="email" id="signupEmail" required autocomplete="email"></div>
+        <div class="field"><label for="signupPassword">Password</label><input type="password" id="signupPassword" required minlength="8" autocomplete="new-password"></div>
+        <button type="submit" class="btn-primary btn-block" id="signupBtn">Create account</button>
+      </form>
+      <div class="alert alert-success alert-hidden" id="signupSuccess"></div>
     </div>
   </div>
 </div>
@@ -55,6 +61,31 @@ setInterval(tick, 1000 * 30);
 const form = document.getElementById('loginForm');
 const errorBox = document.getElementById('loginError');
 const btn = document.getElementById('loginBtn');
+const loginForm = document.getElementById('loginForm');
+const signupForm = document.getElementById('signupForm');
+const signInTab = document.getElementById('signInTab');
+const signUpTab = document.getElementById('signUpTab');
+
+function showLogin() {
+  signInTab.classList.add('active');
+  signUpTab.classList.remove('active');
+  loginForm.classList.remove('hidden');
+  signupForm.classList.add('hidden');
+  document.getElementById('formTitle').textContent = 'Sign in';
+  document.getElementById('formSubtitle').textContent = 'Use your work email and password.';
+}
+
+function showSignup() {
+  signUpTab.classList.add('active');
+  signInTab.classList.remove('active');
+  loginForm.classList.add('hidden');
+  signupForm.classList.remove('hidden');
+  document.getElementById('formTitle').textContent = 'Create account';
+  document.getElementById('formSubtitle').textContent = 'Use your business details. An administrator will activate your account.';
+}
+
+signInTab.addEventListener('click', showLogin);
+signUpTab.addEventListener('click', showSignup);
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -89,6 +120,32 @@ form.addEventListener('submit', async (e) => {
     btn.disabled = false;
     btn.textContent = 'Sign in';
   }
+});
+
+signupForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const successBox = document.getElementById('signupSuccess');
+  successBox.classList.add('alert-hidden');
+  const res = await fetch(`${API_BASE}/auth/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      firstName: document.getElementById('firstName').value,
+      familyName: document.getElementById('familyName').value,
+      businessId: document.getElementById('businessId').value,
+      email: document.getElementById('signupEmail').value,
+      password: document.getElementById('signupPassword').value,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    errorBox.textContent = data.error || 'Could not create account.';
+    errorBox.classList.remove('alert-hidden');
+    return;
+  }
+  signupForm.reset();
+  successBox.textContent = data.message;
+  successBox.classList.remove('alert-hidden');
 });
 
 // If already logged in (valid refresh cookie), skip straight past login
