@@ -17,6 +17,7 @@
     <div class="topbar-user">
       <span id="userName">—</span>
       <span class="role-badge">Manager</span>
+      <span id="notificationArea" style="position:relative"></span>
       <button class="btn-outline" onclick="logout()">Sign out</button>
     </div>
   </div>
@@ -88,6 +89,7 @@ async function init() {
   const user = await requireSession(['manager', 'admin']);
   if (!user) return;
   document.getElementById('userName').textContent = user.name;
+  await mountNotifications(document.getElementById('notificationArea'));
   await loadTeam();
   await loadReports();
   await loadRequests();

@@ -19,6 +19,16 @@ router.get('/staff', requireAuth, requireRole('manager', 'admin'), (req, res) =>
   res.json({ users: staff });
 });
 
+router.get('/notifications', requireAuth, (req, res) => {
+  const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.user.id);
+  res.json({ notifications, unreadCount: notifications.filter((notification) => !notification.read_at).length });
+});
+
+router.patch('/notifications/:id/read', requireAuth, (req, res) => {
+  db.prepare("UPDATE notifications SET read_at = datetime('now') WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
+  res.json({ message: 'Notification marked as read' });
+});
+
 // ---------- PATCH /api/users/:id/status ----------
 // Admin only: deactivate/reactivate an account (e.g. staff member left).
 router.patch(

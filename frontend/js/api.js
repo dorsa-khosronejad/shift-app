@@ -22,6 +22,20 @@ function getCurrentUser() {
   return currentUser;
 }
 
+async function mountNotifications(container) {
+  if (!container) return;
+  const response = await apiFetch('/users/notifications');
+  if (!response.ok) return;
+  const data = await response.json();
+  container.innerHTML = `<button type="button" class="btn-outline" id="notificationButton">Alerts${data.unreadCount ? ` (${data.unreadCount})` : ''}</button><div id="notificationPanel" class="hidden" style="position:absolute;right:20px;top:58px;z-index:5;background:#fff;border:1px solid #ddd;padding:12px;max-width:360px;box-shadow:0 8px 24px #0002"><strong>Notifications</strong>${data.notifications.length ? data.notifications.map((notification) => `<p data-notification-id="${notification.id}" style="margin:10px 0;${notification.read_at ? '' : 'font-weight:700'}">${notification.title}<br><small>${notification.message}</small></p>`).join('') : '<p>No notifications.</p>'}</div>`;
+  const panel = container.querySelector('#notificationPanel');
+  container.querySelector('#notificationButton').addEventListener('click', () => panel.classList.toggle('hidden'));
+  panel.querySelectorAll('[data-notification-id]').forEach((item) => item.addEventListener('click', async () => {
+    await apiFetch(`/users/notifications/${item.dataset.notificationId}/read`, { method: 'PATCH' });
+    item.style.fontWeight = '400';
+  }));
+}
+
 // Wraps fetch: attaches the bearer token, and if the server says the token
 // expired, transparently refreshes it once and retries the original request.
 async function apiFetch(path, options = {}, isRetry = false) {

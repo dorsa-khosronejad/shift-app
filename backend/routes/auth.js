@@ -1,12 +1,12 @@
 const express = require('express');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
 const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 
 const db = require('../db/database');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { sendEmail } = require('../utils/notifications');
 const {
   signAccessToken,
   generateRefreshToken,
@@ -46,12 +46,6 @@ const resetLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-}) : null;
 
 // ---------- POST /api/auth/login ----------
 router.post(
@@ -263,8 +257,8 @@ router.post('/forgot-password', resetLimiter, [
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid work email and phone number' });
   const user = db.prepare('SELECT id FROM users WHERE email = ? AND phone = ?').get(req.body.email, req.body.phone.trim());
-  if (!user || !mailer || !process.env.FRONTEND_URL || !process.env.SMTP_FROM) {
-    return res.status(user && !mailer ? 503 : 200).json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
+  if (!user || !process.env.SMTP_HOST || !process.env.FRONTEND_URL || !process.env.SMTP_FROM) {
+    return res.status(user && !process.env.SMTP_HOST ? 503 : 200).json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
   }
   const rawToken = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
@@ -272,12 +266,11 @@ router.post('/forgot-password', resetLimiter, [
   db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? OR expires_at < ?').run(user.id, new Date().toISOString());
   db.prepare('INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(user.id, tokenHash, expiresAt);
   const resetUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/index.html?reset=${rawToken}`;
-  mailer.sendMail({
-    from: process.env.SMTP_FROM,
+  sendEmail({
     to: req.body.email,
     subject: 'Reset your Shift & Care password',
     text: `Use this link within 15 minutes to reset your password: ${resetUrl}\n\nIf you did not request this, ignore this email.`,
-  }).catch((error) => console.error('Password reset email failed:', error.message));
+  });
   res.json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
 });
 

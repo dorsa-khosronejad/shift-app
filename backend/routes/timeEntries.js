@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../db/database');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { notifyUser } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -133,6 +134,11 @@ router.patch('/requests/:id', requireAuth, requireRole('manager', 'admin'), [
     }
   });
   review();
+  notifyUser(request.user_id, {
+    type: 'manual-correction',
+    title: `Manual correction ${req.body.status}`,
+    message: `Your manual shift correction for ${request.clock_in} was ${req.body.status}.`,
+  });
   res.json({ status: req.body.status });
 });
 
@@ -167,6 +173,11 @@ router.post('/schedule', requireAuth, requireRole('manager', 'admin'), [
   const result = db.prepare(
     'INSERT INTO schedules (employee_id, manager_id, shift_date, start_time, end_time, note) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(employee.id, req.user.id, req.body.shiftDate, req.body.startTime, req.body.endTime, req.body.note?.trim() || null);
+  notifyUser(employee.id, {
+    type: 'schedule',
+    title: 'New shift scheduled',
+    message: `You are scheduled on ${req.body.shiftDate} from ${req.body.startTime} to ${req.body.endTime}.`,
+  });
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
@@ -213,6 +224,12 @@ router.patch('/sick-leave/:id', requireAuth, requireRole('manager', 'admin'), [
   if (!request) return res.status(404).json({ error: 'Leave request not found' });
   if (request.status !== 'pending') return res.status(409).json({ error: 'This request was already reviewed' });
   db.prepare("UPDATE sick_leave_requests SET status = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?").run(req.body.status, req.user.id, req.params.id);
+  const reviewedRequest = db.prepare('SELECT user_id, start_date FROM sick_leave_requests WHERE id = ?').get(req.params.id);
+  notifyUser(reviewedRequest.user_id, {
+    type: 'sick-leave',
+    title: `Sick leave ${req.body.status}`,
+    message: `Your sick-leave request starting ${reviewedRequest.start_date} was ${req.body.status}.`,
+  });
   res.json({ status: req.body.status });
 });
 
