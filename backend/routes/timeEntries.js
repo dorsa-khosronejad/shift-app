@@ -136,6 +136,46 @@ router.patch('/requests/:id', requireAuth, requireRole('manager', 'admin'), [
   res.json({ status: req.body.status });
 });
 
+// ---------- Schedules ----------
+router.get('/schedule/mine', requireAuth, (req, res) => {
+  const schedules = db.prepare(
+    'SELECT * FROM schedules WHERE employee_id = ? ORDER BY shift_date, start_time LIMIT 200'
+  ).all(req.user.id);
+  res.json({ schedules });
+});
+
+router.get('/schedule', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const schedules = db.prepare(
+    `SELECT s.*, u.name AS employee_name, u.department
+     FROM schedules s JOIN users u ON u.id = s.employee_id
+     ORDER BY s.shift_date, s.start_time LIMIT 500`
+  ).all();
+  res.json({ schedules });
+});
+
+router.post('/schedule', requireAuth, requireRole('manager', 'admin'), [
+  body('employeeId').isInt({ min: 1 }),
+  body('shiftDate').isISO8601({ strict: true, strictSeparator: true }),
+  body('startTime').matches(/^\d{2}:\d{2}$/),
+  body('endTime').matches(/^\d{2}:\d{2}$/),
+  body('note').optional().trim().isLength({ max: 300 }),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty() || req.body.endTime <= req.body.startTime) return res.status(400).json({ error: 'Enter a valid employee and time range' });
+  const employee = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'employee' AND is_active = 1").get(req.body.employeeId);
+  if (!employee) return res.status(404).json({ error: 'Active employee not found' });
+  const result = db.prepare(
+    'INSERT INTO schedules (employee_id, manager_id, shift_date, start_time, end_time, note) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(employee.id, req.user.id, req.body.shiftDate, req.body.startTime, req.body.endTime, req.body.note?.trim() || null);
+  res.status(201).json({ id: result.lastInsertRowid });
+});
+
+router.delete('/schedule/:id', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const result = db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: 'Schedule entry not found' });
+  res.json({ message: 'Schedule entry removed' });
+});
+
 // ---------- GET /api/shifts/mine ----------
 router.get('/mine', requireAuth, (req, res) => {
   const entries = db

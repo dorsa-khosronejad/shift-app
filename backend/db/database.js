@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   business_id TEXT,
   email TEXT NOT NULL UNIQUE,
+  phone TEXT,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('employee','manager','admin')) DEFAULT 'employee',
   department TEXT DEFAULT 'Housekeeping',
@@ -55,6 +56,17 @@ CREATE TABLE IF NOT EXISTS shift_requests (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  manager_id INTEGER NOT NULL REFERENCES users(id),
+  shift_date TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS wellbeing_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -67,11 +79,15 @@ CREATE TABLE IF NOT EXISTS wellbeing_reports (
 CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
+CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
 `);
 
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name);
 if (!userColumns.includes('business_id')) {
   db.exec('ALTER TABLE users ADD COLUMN business_id TEXT');
+}
+if (!userColumns.includes('phone')) {
+  db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
 }
 
 // ---------- Seed demo data (only if empty) ----------

@@ -212,6 +212,7 @@ router.post(
     body('familyName').trim().isLength({ min: 2, max: 80 }),
     body('businessId').trim().isLength({ min: 2, max: 80 }),
     body('email').isEmail().normalizeEmail(),
+    body('phone').trim().isMobilePhone('any'),
     body('password')
       .isLength({ min: 8 })
       .withMessage('Password must be at least 8 characters')
@@ -222,20 +223,31 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter all details and use a password with 8+ characters and a number' });
 
-    const { firstName, familyName, businessId, email, password } = req.body;
+    const { firstName, familyName, businessId, email, phone, password } = req.body;
     const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     const existingBusinessId = db.prepare('SELECT id FROM users WHERE business_id = ?').get(businessId.trim());
     if (existingEmail || existingBusinessId) return res.status(409).json({ error: 'That email or business ID is already registered' });
 
     const hash = bcrypt.hashSync(password, 12);
     const result = db.prepare(
-      `INSERT INTO users (name, business_id, email, password_hash, role, department, is_active)
-       VALUES (?, ?, ?, ?, 'employee', 'Housekeeping', 0)`
-    ).run(`${firstName.trim()} ${familyName.trim()}`, businessId.trim(), email, hash);
+      `INSERT INTO users (name, business_id, email, phone, password_hash, role, department, is_active)
+       VALUES (?, ?, ?, ?, ?, 'employee', 'Housekeeping', 0)`
+     ).run(`${firstName.trim()} ${familyName.trim()}`, businessId.trim(), email, phone.trim(), hash);
 
     res.status(201).json({ id: result.lastInsertRowid, message: 'Signup received. An administrator must activate your account before you can sign in.' });
   }
 );
+
+// Recovery requests are intentionally generic until an email/SMS provider is configured.
+router.post('/forgot-password', [
+  body('email').isEmail().normalizeEmail(),
+  body('phone').trim().isMobilePhone('any'),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid work email and phone number' });
+  const user = db.prepare('SELECT id FROM users WHERE email = ? AND phone = ?').get(req.body.email, req.body.phone.trim());
+  res.json({ message: user ? 'Your request was received. Contact your administrator for a secure password reset.' : 'If those details match an account, recovery instructions will be provided by your administrator.' });
+});
 
 // ---------- POST /api/auth/change-password ----------
 router.post(

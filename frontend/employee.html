@@ -24,6 +24,12 @@
   <div class="main">
 
     <div class="panel">
+      <h3>My schedule</h3>
+      <table><thead><tr><th>Date</th><th>Time</th><th>Note</th></tr></thead><tbody id="scheduleBody"></tbody></table>
+      <div class="empty-state hidden" id="scheduleEmpty">No scheduled shifts yet.</div>
+    </div>
+
+    <div class="panel">
       <div class="panel-header">
         <div>
           <h3>Your shift</h3>
@@ -112,6 +118,14 @@ async function init() {
   document.getElementById('userName').textContent = user.name;
   await loadStatus();
   await loadRequests();
+  await loadSchedule();
+}
+
+async function loadSchedule() {
+  const res = await apiFetch('/shifts/schedule/mine');
+  const { schedules } = await res.json();
+  document.getElementById('scheduleBody').innerHTML = schedules.map((shift) => `<tr><td>${shift.shift_date}</td><td>${shift.start_time} - ${shift.end_time}</td><td>${shift.note || '—'}</td></tr>`).join('');
+  document.getElementById('scheduleEmpty').classList.toggle('hidden', schedules.length > 0);
 }
 
 async function loadStatus() {

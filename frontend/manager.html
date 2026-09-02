@@ -24,6 +24,22 @@
   <div class="main">
 
     <div class="panel">
+      <h3>Team schedule</h3>
+      <p style="margin:0 0 12px">Assign active employees to upcoming shifts.</p>
+      <form id="scheduleForm">
+        <div class="field"><label for="scheduleEmployee">Employee</label><select id="scheduleEmployee" required></select></div>
+        <div class="field"><label for="scheduleDate">Date</label><input id="scheduleDate" type="date" required></div>
+        <div class="field"><label for="scheduleStart">Start</label><input id="scheduleStart" type="time" required></div>
+        <div class="field"><label for="scheduleEnd">End</label><input id="scheduleEnd" type="time" required></div>
+        <div class="field"><label for="scheduleNote">Note</label><input id="scheduleNote" maxlength="300"></div>
+        <button class="btn-primary" type="submit">Add to schedule</button>
+      </form>
+      <div class="alert alert-error alert-hidden" id="scheduleError"></div>
+      <table style="margin-top:18px"><thead><tr><th>Employee</th><th>Date</th><th>Time</th><th>Note</th><th></th></tr></thead><tbody id="scheduleBody"></tbody></table>
+      <div class="empty-state hidden" id="scheduleEmpty">No scheduled shifts.</div>
+    </div>
+
+    <div class="panel">
       <h3>Manual shift corrections</h3>
       <p style="margin:0 0 12px">Review missed clock-in and clock-out requests before they affect hours.</p>
       <table>
@@ -65,7 +81,45 @@ async function init() {
   await loadTeam();
   await loadReports();
   await loadRequests();
+  await loadSchedule();
 }
+
+async function loadSchedule() {
+  const [staffResponse, scheduleResponse] = await Promise.all([
+    apiFetch('/users/staff'), apiFetch('/shifts/schedule'),
+  ]);
+  const { users } = await staffResponse.json();
+  const { schedules } = await scheduleResponse.json();
+  document.getElementById('scheduleEmployee').innerHTML = users.map((user) => `<option value="${user.id}">${user.name}</option>`).join('');
+  const body = document.getElementById('scheduleBody');
+  body.innerHTML = schedules.map((shift) => `<tr><td>${shift.employee_name}</td><td>${shift.shift_date}</td><td>${shift.start_time} - ${shift.end_time}</td><td>${shift.note || '—'}</td><td><button class="btn-outline" data-schedule-id="${shift.id}">Remove</button></td></tr>`).join('');
+  document.getElementById('scheduleEmpty').classList.toggle('hidden', schedules.length > 0);
+  body.querySelectorAll('[data-schedule-id]').forEach((button) => button.addEventListener('click', async () => {
+    await apiFetch(`/shifts/schedule/${button.dataset.scheduleId}`, { method: 'DELETE' });
+    await loadSchedule();
+  }));
+}
+
+document.getElementById('scheduleForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const error = document.getElementById('scheduleError');
+  error.classList.add('alert-hidden');
+  const response = await apiFetch('/shifts/schedule', { method: 'POST', body: JSON.stringify({
+    employeeId: document.getElementById('scheduleEmployee').value,
+    shiftDate: document.getElementById('scheduleDate').value,
+    startTime: document.getElementById('scheduleStart').value,
+    endTime: document.getElementById('scheduleEnd').value,
+    note: document.getElementById('scheduleNote').value,
+  }) });
+  if (!response.ok) {
+    const data = await response.json();
+    error.textContent = data.error || 'Could not add schedule entry.';
+    error.classList.remove('alert-hidden');
+    return;
+  }
+  event.target.reset();
+  await loadSchedule();
+});
 
 async function loadRequests() {
   const res = await apiFetch('/shifts/requests');

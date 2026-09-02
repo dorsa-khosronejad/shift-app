@@ -14,6 +14,11 @@ router.get('/', requireAuth, requireRole('admin'), (req, res) => {
   res.json({ users });
 });
 
+router.get('/staff', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const staff = db.prepare("SELECT id, name, business_id, department FROM users WHERE role = 'employee' AND is_active = 1 ORDER BY name").all();
+  res.json({ users: staff });
+});
+
 // ---------- PATCH /api/users/:id/status ----------
 // Admin only: deactivate/reactivate an account (e.g. staff member left).
 router.patch(

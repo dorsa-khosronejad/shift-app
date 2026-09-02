@@ -41,8 +41,16 @@
         <div class="field"><label for="familyName">Family name</label><input id="familyName" required autocomplete="family-name"></div>
         <div class="field"><label for="businessId">Business ID</label><input id="businessId" required autocomplete="organization-title"></div>
         <div class="field"><label for="signupEmail">Work email</label><input type="email" id="signupEmail" required autocomplete="email"></div>
+        <div class="field"><label for="signupPhone">Phone number</label><input type="tel" id="signupPhone" required autocomplete="tel"></div>
         <div class="field"><label for="signupPassword">Password</label><input type="password" id="signupPassword" required minlength="8" autocomplete="new-password"></div>
         <button type="submit" class="btn-primary btn-block" id="signupBtn">Create account</button>
+      </form>
+      <button type="button" class="btn-outline btn-block" id="forgotPasswordBtn">Forgot password?</button>
+      <form id="forgotPasswordForm" class="hidden">
+        <p>Enter the email and phone number on your account. Your administrator will provide a secure reset.</p>
+        <div class="field"><label for="forgotEmail">Work email</label><input type="email" id="forgotEmail" required autocomplete="email"></div>
+        <div class="field"><label for="forgotPhone">Phone number</label><input type="tel" id="forgotPhone" required autocomplete="tel"></div>
+        <button type="submit" class="btn-primary btn-block">Request password reset</button>
       </form>
       <div class="alert alert-success alert-hidden" id="signupSuccess"></div>
     </div>
@@ -65,6 +73,8 @@ const loginForm = document.getElementById('loginForm');
 const signupForm = document.getElementById('signupForm');
 const signInTab = document.getElementById('signInTab');
 const signUpTab = document.getElementById('signUpTab');
+const forgotPasswordBtn = document.getElementById('forgotPasswordBtn');
+const forgotPasswordForm = document.getElementById('forgotPasswordForm');
 
 function showLogin() {
   signInTab.classList.add('active');
@@ -73,6 +83,8 @@ function showLogin() {
   signupForm.classList.add('hidden');
   document.getElementById('formTitle').textContent = 'Sign in';
   document.getElementById('formSubtitle').textContent = 'Use your work email and password.';
+  forgotPasswordBtn.classList.remove('hidden');
+  forgotPasswordForm.classList.add('hidden');
 }
 
 function showSignup() {
@@ -82,10 +94,13 @@ function showSignup() {
   signupForm.classList.remove('hidden');
   document.getElementById('formTitle').textContent = 'Create account';
   document.getElementById('formSubtitle').textContent = 'Use your business details. An administrator will activate your account.';
+  forgotPasswordBtn.classList.add('hidden');
+  forgotPasswordForm.classList.add('hidden');
 }
 
 signInTab.addEventListener('click', showLogin);
 signUpTab.addEventListener('click', showSignup);
+forgotPasswordBtn.addEventListener('click', () => forgotPasswordForm.classList.toggle('hidden'));
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -134,6 +149,7 @@ signupForm.addEventListener('submit', async (e) => {
       familyName: document.getElementById('familyName').value,
       businessId: document.getElementById('businessId').value,
       email: document.getElementById('signupEmail').value,
+      phone: document.getElementById('signupPhone').value,
       password: document.getElementById('signupPassword').value,
     }),
   });
@@ -146,6 +162,20 @@ signupForm.addEventListener('submit', async (e) => {
   signupForm.reset();
   successBox.textContent = data.message;
   successBox.classList.remove('alert-hidden');
+});
+
+forgotPasswordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: document.getElementById('forgotEmail').value,
+      phone: document.getElementById('forgotPhone').value,
+    }),
+  });
+  const data = await res.json();
+  errorBox.textContent = data.error || data.message;
+  errorBox.classList.remove('alert-hidden');
 });
 
 // If already logged in (valid refresh cookie), skip straight past login
