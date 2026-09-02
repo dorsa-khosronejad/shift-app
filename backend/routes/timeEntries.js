@@ -65,7 +65,7 @@ router.post('/clock-out', requireAuth, [body('note').optional().trim().isLength(
   }
 
   db.prepare("UPDATE time_entries SET clock_out = datetime('now'), note = ? WHERE id = ?").run(
-    req.body.note || null,
+    req.body?.note || null,
     openEntry.id
   );
 
@@ -174,6 +174,76 @@ router.delete('/schedule/:id', requireAuth, requireRole('manager', 'admin'), (re
   const result = db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id);
   if (!result.changes) return res.status(404).json({ error: 'Schedule entry not found' });
   res.json({ message: 'Schedule entry removed' });
+});
+
+// ---------- Sick leave ----------
+router.post('/sick-leave', requireAuth, [
+  body('startDate').isISO8601({ strict: true, strictSeparator: true }),
+  body('endDate').isISO8601({ strict: true, strictSeparator: true }),
+  body('note').optional().trim().isLength({ max: 300 }),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty() || req.body.endDate < req.body.startDate) return res.status(400).json({ error: 'Enter a valid leave date range' });
+  const result = db.prepare('INSERT INTO sick_leave_requests (user_id, start_date, end_date, note) VALUES (?, ?, ?, ?)').run(
+    req.user.id, req.body.startDate, req.body.endDate, req.body.note?.trim() || null
+  );
+  res.status(201).json({ id: result.lastInsertRowid, status: 'pending' });
+});
+
+router.get('/sick-leave/mine', requireAuth, (req, res) => {
+  const requests = db.prepare('SELECT * FROM sick_leave_requests WHERE user_id = ? ORDER BY start_date DESC LIMIT 100').all(req.user.id);
+  res.json({ requests });
+});
+
+router.get('/sick-leave', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const requests = db.prepare(
+    `SELECT sl.*, u.name AS employee_name, u.department
+     FROM sick_leave_requests sl JOIN users u ON u.id = sl.user_id
+     ORDER BY CASE sl.status WHEN 'pending' THEN 0 ELSE 1 END, sl.start_date DESC LIMIT 200`
+  ).all();
+  res.json({ requests });
+});
+
+router.patch('/sick-leave/:id', requireAuth, requireRole('manager', 'admin'), [
+  body('status').isIn(['approved', 'rejected']),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid leave status' });
+  const request = db.prepare('SELECT status FROM sick_leave_requests WHERE id = ?').get(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Leave request not found' });
+  if (request.status !== 'pending') return res.status(409).json({ error: 'This request was already reviewed' });
+  db.prepare("UPDATE sick_leave_requests SET status = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?").run(req.body.status, req.user.id, req.params.id);
+  res.json({ status: req.body.status });
+});
+
+// ---------- Shift feedback ----------
+router.post('/feedback', requireAuth, [
+  body('timeEntryId').isInt({ min: 1 }),
+  body('rating').isInt({ min: 1, max: 5 }),
+  body('comment').optional().trim().isLength({ max: 500 }),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Choose a rating from 1 to 5' });
+  const entry = db.prepare('SELECT id FROM time_entries WHERE id = ? AND user_id = ? AND clock_out IS NOT NULL').get(req.body.timeEntryId, req.user.id);
+  if (!entry) return res.status(404).json({ error: 'Completed shift not found' });
+  try {
+    const result = db.prepare('INSERT INTO shift_feedback (time_entry_id, user_id, rating, comment) VALUES (?, ?, ?, ?)').run(
+      entry.id, req.user.id, req.body.rating, req.body.comment?.trim() || null
+    );
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ error: 'Feedback already submitted for this shift' });
+    throw error;
+  }
+});
+
+router.get('/feedback', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const feedback = db.prepare(
+    `SELECT sf.*, u.name AS employee_name, u.department, te.clock_in, te.clock_out
+     FROM shift_feedback sf JOIN users u ON u.id = sf.user_id JOIN time_entries te ON te.id = sf.time_entry_id
+     ORDER BY sf.created_at DESC LIMIT 200`
+  ).all();
+  res.json({ feedback });
 });
 
 // ---------- GET /api/shifts/mine ----------

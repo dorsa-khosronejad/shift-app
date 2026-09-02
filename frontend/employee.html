@@ -24,6 +24,19 @@
   <div class="main">
 
     <div class="panel">
+      <h3>Sick leave</h3>
+      <p style="margin:0 0 12px">Request time away. Share only the information your workplace requires.</p>
+      <form id="leaveForm">
+        <div class="field"><label for="leaveStart">First day</label><input id="leaveStart" type="date" required></div>
+        <div class="field"><label for="leaveEnd">Last day</label><input id="leaveEnd" type="date" required></div>
+        <div class="field"><label for="leaveNote">Optional note</label><textarea id="leaveNote" rows="2" maxlength="300"></textarea></div>
+        <button class="btn-outline" type="submit">Request sick leave</button>
+      </form>
+      <div class="alert alert-error alert-hidden" id="leaveError"></div>
+      <table style="margin-top:18px"><thead><tr><th>Dates</th><th>Status</th></tr></thead><tbody id="leaveBody"></tbody></table>
+    </div>
+
+    <div class="panel">
       <h3>My schedule</h3>
       <table><thead><tr><th>Date</th><th>Time</th><th>Note</th></tr></thead><tbody id="scheduleBody"></tbody></table>
       <div class="empty-state hidden" id="scheduleEmpty">No scheduled shifts yet.</div>
@@ -78,6 +91,12 @@
     </div>
 
     <div class="panel">
+      <h3>Rate your completed shifts</h3>
+      <p style="margin:0 0 12px">Private feedback helps improve the workday.</p>
+      <div id="feedbackForms"></div>
+    </div>
+
+    <div class="panel">
       <div class="panel-header">
         <div>
           <h3>Flag something</h3>
@@ -119,6 +138,13 @@ async function init() {
   await loadStatus();
   await loadRequests();
   await loadSchedule();
+  await loadLeave();
+}
+
+async function loadLeave() {
+  const res = await apiFetch('/shifts/sick-leave/mine');
+  const { requests } = await res.json();
+  document.getElementById('leaveBody').innerHTML = requests.map((request) => `<tr><td>${request.start_date} - ${request.end_date}</td><td><span class="tag tag-${request.status}">${request.status}</span></td></tr>`).join('');
 }
 
 async function loadSchedule() {
@@ -181,6 +207,22 @@ function renderHistory(entries) {
     `;
     body.appendChild(tr);
   }
+  renderFeedback(entries);
+}
+
+function renderFeedback(entries) {
+  document.getElementById('feedbackForms').innerHTML = entries.filter((entry) => entry.clock_out).slice(0, 5).map((entry) => `
+    <form class="feedback-form" data-entry-id="${entry.id}" style="margin-bottom:12px">
+      <strong>${formatDateTime(entry.clock_in)}</strong>
+      <select name="rating" required><option value="">Rating</option><option value="5">5 - Great</option><option value="4">4 - Good</option><option value="3">3 - Okay</option><option value="2">2 - Difficult</option><option value="1">1 - Very difficult</option></select>
+      <input name="comment" maxlength="500" placeholder="Optional comment">
+      <button class="btn-outline" type="submit">Send feedback</button>
+    </form>`).join('');
+  document.querySelectorAll('.feedback-form').forEach((form) => form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const response = await apiFetch('/shifts/feedback', { method: 'POST', body: JSON.stringify({ timeEntryId: form.dataset.entryId, rating: form.rating.value, comment: form.comment.value }) });
+    if (response.ok) form.remove();
+  }));
 }
 
 document.getElementById('clockBtn').addEventListener('click', async () => {
@@ -201,6 +243,13 @@ document.getElementById('clockBtn').addEventListener('click', async () => {
   }
 
   await loadStatus();
+});
+
+document.getElementById('leaveForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const response = await apiFetch('/shifts/sick-leave', { method: 'POST', body: JSON.stringify({ startDate: leaveStart.value, endDate: leaveEnd.value, note: leaveNote.value }) });
+  if (!response.ok) { const data = await response.json(); leaveError.textContent = data.error; leaveError.classList.remove('alert-hidden'); return; }
+  event.target.reset(); leaveError.classList.add('alert-hidden'); await loadLeave();
 });
 
 document.getElementById('requestForm').addEventListener('submit', async (event) => {

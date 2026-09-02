@@ -24,6 +24,16 @@
   <div class="main">
 
     <div class="panel">
+      <h3>Sick leave requests</h3>
+      <table><thead><tr><th>Employee</th><th>Dates</th><th>Note</th><th>Status</th><th></th></tr></thead><tbody id="leaveBody"></tbody></table>
+    </div>
+
+    <div class="panel">
+      <h3>Shift feedback</h3>
+      <table><thead><tr><th>Employee</th><th>Rating</th><th>Comment</th><th>Shift</th></tr></thead><tbody id="feedbackBody"></tbody></table>
+    </div>
+
+    <div class="panel">
       <h3>Team schedule</h3>
       <p style="margin:0 0 12px">Assign active employees to upcoming shifts.</p>
       <form id="scheduleForm">
@@ -82,6 +92,19 @@ async function init() {
   await loadReports();
   await loadRequests();
   await loadSchedule();
+  await loadLeave();
+  await loadFeedback();
+}
+
+async function loadLeave() {
+  const { requests } = await (await apiFetch('/shifts/sick-leave')).json();
+  const body = document.getElementById('leaveBody'); body.innerHTML = requests.map((request) => `<tr><td>${request.employee_name}</td><td>${request.start_date} - ${request.end_date}</td><td>${request.note || '—'}</td><td><span class="tag tag-${request.status}">${request.status}</span></td><td>${request.status === 'pending' ? `<button class="btn-outline" data-leave-id="${request.id}" data-status="approved">Approve</button> <button class="btn-outline" data-leave-id="${request.id}" data-status="rejected">Reject</button>` : ''}</td></tr>`).join('');
+  body.querySelectorAll('[data-leave-id]').forEach((button) => button.addEventListener('click', async () => { await apiFetch(`/shifts/sick-leave/${button.dataset.leaveId}`, { method: 'PATCH', body: JSON.stringify({ status: button.dataset.status }) }); await loadLeave(); }));
+}
+
+async function loadFeedback() {
+  const { feedback } = await (await apiFetch('/shifts/feedback')).json();
+  document.getElementById('feedbackBody').innerHTML = feedback.map((item) => `<tr><td>${item.employee_name}</td><td>${'★'.repeat(item.rating)}${'☆'.repeat(5 - item.rating)}</td><td>${item.comment || '—'}</td><td>${formatDateTime(item.clock_in)}</td></tr>`).join('');
 }
 
 async function loadSchedule() {

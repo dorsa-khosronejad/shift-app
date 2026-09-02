@@ -67,6 +67,27 @@ CREATE TABLE IF NOT EXISTS schedules (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS sick_leave_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+  reviewed_by INTEGER REFERENCES users(id),
+  reviewed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS shift_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  time_entry_id INTEGER NOT NULL UNIQUE REFERENCES time_entries(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+  comment TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS wellbeing_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -80,6 +101,8 @@ CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
+CREATE INDEX IF NOT EXISTS idx_sick_leave_status ON sick_leave_requests(status);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON shift_feedback(created_at);
 `);
 
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name);
