@@ -37,6 +37,13 @@ function parseManualDate(value) {
   return Number.isNaN(date.getTime()) ? null : toSqliteUTC(date);
 }
 
+function hasScheduleConflict(employeeId, shiftDate, startTime, endTime, excludeId = null) {
+  const query = `SELECT id FROM schedules WHERE employee_id = ? AND shift_date = ?
+    AND start_time < ? AND end_time > ?${excludeId ? ' AND id != ?' : ''}`;
+  const params = excludeId ? [employeeId, shiftDate, endTime, startTime, excludeId] : [employeeId, shiftDate, endTime, startTime];
+  return !!db.prepare(query).get(...params);
+}
+
 // ---------- POST /api/shifts/clock-in ----------
 router.post('/clock-in', requireAuth, (req, res) => {
   const openEntry = db
@@ -170,6 +177,7 @@ router.post('/schedule', requireAuth, requireRole('manager', 'admin'), [
   if (!errors.isEmpty() || req.body.endTime <= req.body.startTime) return res.status(400).json({ error: 'Enter a valid employee and time range' });
   const employee = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'employee' AND is_active = 1").get(req.body.employeeId);
   if (!employee) return res.status(404).json({ error: 'Active employee not found' });
+  if (hasScheduleConflict(employee.id, req.body.shiftDate, req.body.startTime, req.body.endTime)) return res.status(409).json({ error: 'This employee already has an overlapping shift' });
   const result = db.prepare(
     'INSERT INTO schedules (employee_id, manager_id, shift_date, start_time, end_time, note) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(employee.id, req.user.id, req.body.shiftDate, req.body.startTime, req.body.endTime, req.body.note?.trim() || null);
@@ -179,6 +187,70 @@ router.post('/schedule', requireAuth, requireRole('manager', 'admin'), [
     message: `You are scheduled on ${req.body.shiftDate} from ${req.body.startTime} to ${req.body.endTime}.`,
   });
   res.status(201).json({ id: result.lastInsertRowid });
+});
+
+router.patch('/schedule/:id', requireAuth, requireRole('manager', 'admin'), [
+  body('shiftDate').isISO8601({ strict: true, strictSeparator: true }),
+  body('startTime').matches(/^\d{2}:\d{2}$/),
+  body('endTime').matches(/^\d{2}:\d{2}$/),
+], (req, res) => {
+  const errors = validationResult(req);
+  const schedule = db.prepare('SELECT * FROM schedules WHERE id = ?').get(req.params.id);
+  if (!schedule) return res.status(404).json({ error: 'Schedule entry not found' });
+  if (!errors.isEmpty() || req.body.endTime <= req.body.startTime) return res.status(400).json({ error: 'Enter a valid time range' });
+  if (hasScheduleConflict(schedule.employee_id, req.body.shiftDate, req.body.startTime, req.body.endTime, schedule.id)) return res.status(409).json({ error: 'This employee already has an overlapping shift' });
+  db.prepare('UPDATE schedules SET shift_date = ?, start_time = ?, end_time = ? WHERE id = ?').run(req.body.shiftDate, req.body.startTime, req.body.endTime, schedule.id);
+  res.json({ message: 'Schedule updated' });
+});
+
+router.get('/open-shifts', requireAuth, (req, res) => {
+  const openShifts = db.prepare(
+    `SELECT os.*, u.name AS manager_name FROM open_shifts os JOIN users u ON u.id = os.manager_id
+     WHERE os.claimed_by IS NULL ORDER BY os.shift_date, os.start_time LIMIT 200`
+  ).all();
+  res.json({ openShifts });
+});
+
+router.post('/open-shifts', requireAuth, requireRole('manager', 'admin'), [
+  body('shiftDate').isISO8601({ strict: true, strictSeparator: true }),
+  body('startTime').matches(/^\d{2}:\d{2}$/), body('endTime').matches(/^\d{2}:\d{2}$/),
+  body('note').optional().trim().isLength({ max: 300 }),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty() || req.body.endTime <= req.body.startTime) return res.status(400).json({ error: 'Enter a valid open shift time range' });
+  const result = db.prepare('INSERT INTO open_shifts (manager_id, shift_date, start_time, end_time, note) VALUES (?, ?, ?, ?, ?)').run(req.user.id, req.body.shiftDate, req.body.startTime, req.body.endTime, req.body.note?.trim() || null);
+  res.status(201).json({ id: result.lastInsertRowid });
+});
+
+router.post('/open-shifts/:id/claim', requireAuth, requireRole('employee'), (req, res) => {
+  const claim = db.transaction(() => {
+    const openShift = db.prepare('SELECT * FROM open_shifts WHERE id = ?').get(req.params.id);
+    if (!openShift || openShift.claimed_by) return false;
+    if (hasScheduleConflict(req.user.id, openShift.shift_date, openShift.start_time, openShift.end_time)) return false;
+    db.prepare('UPDATE open_shifts SET claimed_by = ?, claimed_at = datetime(\'now\') WHERE id = ? AND claimed_by IS NULL').run(req.user.id, openShift.id);
+    db.prepare('INSERT INTO schedules (employee_id, manager_id, shift_date, start_time, end_time, note) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, openShift.manager_id, openShift.shift_date, openShift.start_time, openShift.end_time, openShift.note);
+    return true;
+  });
+  if (!claim()) return res.status(409).json({ error: 'This open shift was claimed or conflicts with your schedule' });
+  res.json({ message: 'Open shift claimed' });
+});
+
+router.get('/availability/mine', requireAuth, (req, res) => {
+  const availability = db.prepare('SELECT weekday, start_time, end_time FROM employee_availability WHERE employee_id = ? ORDER BY weekday').all(req.user.id);
+  res.json({ availability });
+});
+
+router.put('/availability/mine', requireAuth, [
+  body('availability').isArray({ max: 7 }),
+], (req, res) => {
+  if (!validationResult(req).isEmpty() || req.body.availability.some((item) => !Number.isInteger(item.weekday) || item.weekday < 0 || item.weekday > 6 || !/^\d{2}:\d{2}$/.test(item.startTime) || !/^\d{2}:\d{2}$/.test(item.endTime) || item.endTime <= item.startTime)) return res.status(400).json({ error: 'Enter valid availability windows' });
+  const update = db.transaction(() => {
+    db.prepare('DELETE FROM employee_availability WHERE employee_id = ?').run(req.user.id);
+    const insert = db.prepare('INSERT INTO employee_availability (employee_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)');
+    for (const item of req.body.availability) insert.run(req.user.id, item.weekday, item.startTime, item.endTime);
+  });
+  update();
+  res.json({ message: 'Availability saved' });
 });
 
 router.delete('/schedule/:id', requireAuth, requireRole('manager', 'admin'), (req, res) => {

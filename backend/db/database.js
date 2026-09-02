@@ -86,6 +86,27 @@ CREATE TABLE IF NOT EXISTS schedules (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS open_shifts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  manager_id INTEGER NOT NULL REFERENCES users(id),
+  shift_date TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  note TEXT,
+  claimed_by INTEGER REFERENCES users(id),
+  claimed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS employee_availability (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  weekday INTEGER NOT NULL CHECK(weekday BETWEEN 0 AND 6),
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  UNIQUE(employee_id, weekday)
+);
+
 CREATE TABLE IF NOT EXISTS sick_leave_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -122,6 +143,8 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(tok
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
+CREATE INDEX IF NOT EXISTS idx_open_shifts_date ON open_shifts(shift_date);
+CREATE INDEX IF NOT EXISTS idx_availability_employee ON employee_availability(employee_id);
 CREATE INDEX IF NOT EXISTS idx_sick_leave_status ON sick_leave_requests(status);
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON shift_feedback(created_at);
 `);

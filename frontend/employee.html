@@ -24,6 +24,9 @@
 
   <div class="main">
 
+    <div class="panel"><h3>Open shifts</h3><p style="margin:0 0 12px">Claim an available shift that fits your schedule.</p><div id="openShiftsBody"></div></div>
+    <div class="panel"><h3>My availability</h3><p style="margin:0 0 12px">Set one availability window per weekday.</p><form id="availabilityForm"><div id="availabilityFields"></div><button class="btn-outline" type="submit">Save availability</button></form><div class="alert alert-success alert-hidden" id="availabilitySuccess">Availability saved.</div></div>
+
     <div class="panel">
       <h3>Sick leave</h3>
       <p style="margin:0 0 12px">Request time away. Share only the information your workplace requires.</p>
@@ -141,7 +144,14 @@ async function init() {
   await loadRequests();
   await loadSchedule();
   await loadLeave();
+  await loadOpenShifts();
+  await loadAvailability();
 }
+
+async function loadOpenShifts() { const { openShifts } = await (await apiFetch('/shifts/open-shifts')).json(); document.getElementById('openShiftsBody').innerHTML = openShifts.map((shift) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)"><strong>${shift.shift_date}</strong> · ${shift.start_time}-${shift.end_time}<br><small>${shift.note || 'Open shift'}</small> <button class="btn-outline" data-open-shift-id="${shift.id}">Claim</button></div>`).join('') || '<div class="empty-state">No open shifts.</div>'; document.querySelectorAll('[data-open-shift-id]').forEach((button) => button.addEventListener('click', async () => { const response = await apiFetch(`/shifts/open-shifts/${button.dataset.openShiftId}/claim`, { method: 'POST' }); if (response.ok) await loadOpenShifts(); else alert((await response.json()).error); })); }
+const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+async function loadAvailability() { const { availability } = await (await apiFetch('/shifts/availability/mine')).json(); document.getElementById('availabilityFields').innerHTML = weekdays.map((day, weekday) => { const item = availability.find((entry) => entry.weekday === weekday); return `<div class="availability-row"><label><input type="checkbox" data-weekday="${weekday}" ${item ? 'checked' : ''}> ${day}</label><input type="time" data-start="${weekday}" value="${item?.start_time || '09:00'}"><input type="time" data-end="${weekday}" value="${item?.end_time || '17:00'}"></div>`; }).join(''); }
+availabilityForm.addEventListener('submit', async (event) => { event.preventDefault(); const availability = [...document.querySelectorAll('[data-weekday]:checked')].map((checkbox) => ({ weekday: Number(checkbox.dataset.weekday), startTime: document.querySelector(`[data-start="${checkbox.dataset.weekday}"]`).value, endTime: document.querySelector(`[data-end="${checkbox.dataset.weekday}"]`).value })); const response = await apiFetch('/shifts/availability/mine', { method: 'PUT', body: JSON.stringify({ availability }) }); if (response.ok) availabilitySuccess.classList.remove('alert-hidden'); });
 
 async function loadLeave() {
   const res = await apiFetch('/shifts/sick-leave/mine');

@@ -24,6 +24,17 @@
 
   <div class="main">
 
+    <div class="panel">
+      <div class="panel-header"><div><h3>Weekly calendar</h3><p style="margin:0">Drag a scheduled shift to another day.</p></div><button class="btn-outline" id="previousWeek">Previous week</button><button class="btn-outline" id="nextWeek">Next week</button></div>
+      <div id="calendarGrid" class="calendar-grid"></div>
+      <div class="alert alert-error alert-hidden" id="calendarError"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Open shift</h3><p style="margin:0 0 12px">Post a shift employees can claim.</p>
+      <form id="openShiftForm"><div class="field"><label for="openShiftDate">Date</label><input id="openShiftDate" type="date" required></div><div class="field"><label for="openShiftStart">Start</label><input id="openShiftStart" type="time" required></div><div class="field"><label for="openShiftEnd">End</label><input id="openShiftEnd" type="time" required></div><div class="field"><label for="openShiftNote">Note</label><input id="openShiftNote" maxlength="300"></div><button class="btn-primary" type="submit">Post open shift</button></form>
+    </div>
+
     <div id="dashboardGrid" class="dashboard-grid" aria-live="polite">
       <div class="dashboard-card"><h3>Today's staff</h3><div class="dashboard-number">—</div></div>
       <div class="dashboard-card"><h3>Clocked in</h3><div class="dashboard-number">—</div></div>
@@ -106,7 +117,23 @@ async function init() {
   await loadSchedule();
   await loadLeave();
   await loadFeedback();
+  await loadCalendar();
 }
+
+let calendarOffset = 0;
+function weekStart(offset) { const date = new Date(); date.setHours(0, 0, 0, 0); const day = date.getDay() || 7; date.setDate(date.getDate() - day + 1 + offset * 7); return date; }
+function dateKey(date) { return date.toISOString().slice(0, 10); }
+async function loadCalendar() {
+  const { schedules } = await (await apiFetch('/shifts/schedule')).json();
+  const start = weekStart(calendarOffset); const days = Array.from({ length: 7 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); return day; });
+  document.getElementById('calendarGrid').innerHTML = days.map((day) => `<section class="calendar-day"><h4>${day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</h4>${schedules.filter((shift) => shift.shift_date === dateKey(day)).map((shift) => `<article class="calendar-shift" draggable="true" data-shift-id="${shift.id}" data-date="${shift.shift_date}"><strong>${shift.employee_name}</strong><br>${shift.start_time}-${shift.end_time}</article>`).join('') || '<small>No shifts</small>'}</section>`).join('');
+  document.querySelectorAll('.calendar-shift').forEach((card) => { card.addEventListener('dragstart', (event) => event.dataTransfer.setData('text/plain', card.dataset.shiftId)); });
+  document.querySelectorAll('.calendar-day').forEach((day, index) => { day.addEventListener('dragover', (event) => event.preventDefault()); day.addEventListener('drop', async (event) => { const shiftId = event.dataTransfer.getData('text/plain'); const shift = schedules.find((item) => String(item.id) === shiftId); const target = new Date(start); target.setDate(start.getDate() + index); const response = await apiFetch(`/shifts/schedule/${shiftId}`, { method: 'PATCH', body: JSON.stringify({ shiftDate: dateKey(target), startTime: shift.start_time, endTime: shift.end_time }) }); if (!response.ok) { const data = await response.json(); calendarError.textContent = data.error; calendarError.classList.remove('alert-hidden'); } else { calendarError.classList.add('alert-hidden'); await loadCalendar(); } }); });
+}
+previousWeek.addEventListener('click', async () => { calendarOffset -= 1; await loadCalendar(); });
+nextWeek.addEventListener('click', async () => { calendarOffset += 1; await loadCalendar(); });
+
+openShiftForm.addEventListener('submit', async (event) => { event.preventDefault(); const response = await apiFetch('/shifts/open-shifts', { method: 'POST', body: JSON.stringify({ shiftDate: openShiftDate.value, startTime: openShiftStart.value, endTime: openShiftEnd.value, note: openShiftNote.value }) }); if (response.ok) event.target.reset(); });
 
 async function loadDashboard() {
   const response = await apiFetch('/shifts/dashboard');
