@@ -1,5 +1,5 @@
-// API_BASE: change this if the backend runs somewhere other than localhost:4000
-const API_BASE = 'http://192.168.0.62:4000/api';
+// API_BASE: deployed Railway backend.
+const API_BASE = 'https://shift-app-production-acbf.up.railway.app/api';
 
 // The access token lives ONLY in memory (a JS variable), never in
 // localStorage. This means it disappears on page refresh — that's
