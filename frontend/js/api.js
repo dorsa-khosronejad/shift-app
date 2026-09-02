@@ -1,21 +1,21 @@
 // API_BASE: deployed Railway backend.
 const API_BASE = 'https://shift-app-production-acbf.up.railway.app/api';
 
-// The access token lives ONLY in memory (a JS variable), never in
-// localStorage. This means it disappears on page refresh — that's
-// intentional and handled by silently calling /auth/refresh on load,
-// using the httpOnly refresh cookie the browser holds for us.
-let accessToken = null;
+// Keep the short-lived access token in the current tab so login survives the
+// redirect to the role page. The refresh token remains httpOnly and cookie-based.
+let accessToken = sessionStorage.getItem('shiftAccessToken');
 let currentUser = null;
 
 function setSession(token, user) {
   accessToken = token;
   currentUser = user;
+  sessionStorage.setItem('shiftAccessToken', token);
 }
 
 function clearSession() {
   accessToken = null;
   currentUser = null;
+  sessionStorage.removeItem('shiftAccessToken');
 }
 
 function getCurrentUser() {
