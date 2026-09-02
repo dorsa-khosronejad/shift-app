@@ -21,7 +21,7 @@ const isProd = process.env.NODE_ENV === 'production';
 const cookieOptions = {
   httpOnly: true,       // JS on the page can never read this cookie (XSS protection)
   secure: isProd,       // only sent over HTTPS in production
-  sameSite: 'strict',   // not sent on cross-site requests (CSRF protection)
+  sameSite: isProd ? 'none' : 'strict',
   path: '/api/auth',    // only sent to auth endpoints, not every request
   maxAge: REFRESH_TOKEN_TTL_MS,
 };
