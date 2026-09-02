@@ -24,6 +24,15 @@
 
   <div class="main">
 
+    <div id="dashboardGrid" class="dashboard-grid" aria-live="polite">
+      <div class="dashboard-card"><h3>Today's staff</h3><div class="dashboard-number">—</div></div>
+      <div class="dashboard-card"><h3>Clocked in</h3><div class="dashboard-number">—</div></div>
+      <div class="dashboard-card"><h3>Missing clock-outs</h3><div class="dashboard-number">—</div></div>
+      <div class="dashboard-card"><h3>Upcoming leave</h3><div class="dashboard-number">—</div></div>
+      <div class="dashboard-card"><h3>Pending approvals</h3><div class="dashboard-number">—</div></div>
+    </div>
+    <div id="dashboardDetails"></div>
+
     <div class="panel">
       <h3>Sick leave requests</h3>
       <table><thead><tr><th>Employee</th><th>Dates</th><th>Note</th><th>Status</th><th></th></tr></thead><tbody id="leaveBody"></tbody></table>
@@ -90,12 +99,23 @@ async function init() {
   if (!user) return;
   document.getElementById('userName').textContent = user.name;
   await mountNotifications(document.getElementById('notificationArea'));
+  await loadDashboard();
   await loadTeam();
   await loadReports();
   await loadRequests();
   await loadSchedule();
   await loadLeave();
   await loadFeedback();
+}
+
+async function loadDashboard() {
+  const response = await apiFetch('/shifts/dashboard');
+  if (!response.ok) return;
+  const data = await response.json();
+  const cards = document.querySelectorAll('#dashboardGrid .dashboard-card .dashboard-number');
+  [data.todayStaff.length, data.clockedIn.length, data.missingClockOuts.length, data.upcomingLeave.length, data.pendingApprovals.total].forEach((value, index) => { cards[index].textContent = value; });
+  const list = (items, label) => items.length ? `<details class="dashboard-detail"><summary>${label}</summary><ul>${items.map((item) => `<li>${item.employee_name}${item.start_time ? ` · ${item.start_time}-${item.end_time}` : item.start_date ? ` · ${item.start_date} to ${item.end_date}` : ''}</li>`).join('')}</ul></details>` : '';
+  document.getElementById('dashboardDetails').innerHTML = `<div class="panel"><div class="panel-header"><div><h3>Today at a glance</h3><p style="margin:0">${data.today}</p></div></div>${list(data.todayStaff, 'Scheduled today')}${list(data.clockedIn, 'Currently clocked in')}${list(data.missingClockOuts, 'Needs clock-out follow-up')}${list(data.upcomingLeave, 'Approved leave in the next 14 days')}<p style="margin:12px 0 0">Pending: ${data.pendingApprovals.corrections} manual corrections and ${data.pendingApprovals.leave} leave requests.</p></div>`;
 }
 
 async function loadLeave() {

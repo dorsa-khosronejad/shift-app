@@ -79,6 +79,16 @@ a { color: var(--pine); }
 
 .panel-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
 
+.dashboard-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
+.dashboard-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; min-height: 108px; }
+.dashboard-card h3 { font-size: 13px; color: var(--ink-soft); margin-bottom: 8px; }
+.dashboard-card .dashboard-number { font-family: var(--font-display); font-size: 28px; color: var(--pine); }
+.dashboard-card p { font-size: 12px; margin: 2px 0 0; }
+.dashboard-detail { margin-top: 12px; }
+.dashboard-detail summary { cursor: pointer; color: var(--pine); font-size: 13px; }
+.dashboard-detail ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-soft); }
+@media (max-width: 760px) { .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* ---------- Forms ---------- */
 
 label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--ink); }

@@ -287,6 +287,59 @@ router.get('/team', requireAuth, requireRole('manager', 'admin'), (req, res) => 
   res.json({ entries });
 });
 
+// ---------- GET /api/shifts/dashboard ----------
+router.get('/dashboard', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const upcomingEnd = new Date();
+  upcomingEnd.setUTCDate(upcomingEnd.getUTCDate() + 14);
+  const endDate = upcomingEnd.toISOString().slice(0, 10);
+
+  const todayStaff = db.prepare(
+    `SELECT s.id, s.shift_date, s.start_time, s.end_time, s.note,
+            u.id AS employee_id, u.name AS employee_name, u.department,
+            CASE WHEN te.id IS NOT NULL THEN 1 ELSE 0 END AS clocked_in
+     FROM schedules s
+     JOIN users u ON u.id = s.employee_id
+     LEFT JOIN time_entries te ON te.user_id = s.employee_id AND te.clock_out IS NULL
+     WHERE s.shift_date = ?
+     ORDER BY s.start_time, u.name`
+  ).all(today);
+
+  const clockedIn = db.prepare(
+    `SELECT te.id, te.clock_in, u.name AS employee_name, u.department
+     FROM time_entries te JOIN users u ON u.id = te.user_id
+     WHERE te.clock_out IS NULL ORDER BY te.clock_in`
+  ).all();
+
+  const missingClockOuts = db.prepare(
+    `SELECT te.id, te.clock_in, u.name AS employee_name, u.department
+     FROM time_entries te JOIN users u ON u.id = te.user_id
+     WHERE te.clock_in >= ? AND te.clock_in < ? AND te.clock_out IS NULL
+     ORDER BY te.clock_in`
+  ).all(`${today} 00:00:00`, `${today} 23:59:59`);
+
+  const upcomingLeave = db.prepare(
+    `SELECT sl.id, sl.start_date, sl.end_date, u.name AS employee_name, u.department
+     FROM sick_leave_requests sl JOIN users u ON u.id = sl.user_id
+     WHERE sl.status = 'approved' AND sl.end_date >= ? AND sl.start_date <= ?
+     ORDER BY sl.start_date, u.name LIMIT 50`
+  ).all(today, endDate);
+
+  const pendingApprovals = db.prepare(
+    `SELECT (SELECT COUNT(*) FROM shift_requests WHERE status = 'pending') AS corrections,
+            (SELECT COUNT(*) FROM sick_leave_requests WHERE status = 'pending') AS leave`
+  ).get();
+
+  res.json({
+    today,
+    todayStaff,
+    clockedIn,
+    missingClockOuts,
+    upcomingLeave,
+    pendingApprovals: { ...pendingApprovals, total: pendingApprovals.corrections + pendingApprovals.leave },
+  });
+});
+
 // ---------- GET /api/shifts/summary/weekly ----------
 // Managers and admins: total hours per staff member for a given week.
 // ?offset=0 is the current week, ?offset=-1 is last week, etc.
