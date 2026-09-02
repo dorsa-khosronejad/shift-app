@@ -217,5 +217,14 @@ tr:last-child td { border-bottom: none; }
 .availability-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
 .availability-row label { margin: 0; }
 .target-row { display: grid; grid-template-columns: 1fr 110px 60px; gap: 10px; align-items: center; margin-bottom: 8px; }
+.availability-calendar-header { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
+.availability-calendar-header h4 { margin: 0; font-family: var(--font-display); }
+.year-calendar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.year-month { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+.year-month h4 { margin: 0 0 8px; font-size: 13px; }
+.year-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.year-day { text-align: center; padding: 4px 1px; border-radius: 3px; font-size: 11px; color: var(--ink-soft); }
+.year-day.available { background: var(--success-bg); color: var(--success); font-weight: 600; }
+@media (max-width: 760px) { .year-calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .helper-text { font-size: 12.5px; color: var(--ink-soft); margin-top: -10px; margin-bottom: 16px; }
