@@ -46,6 +46,8 @@
       <div class="empty-state hidden" id="scheduleEmpty">No scheduled shifts yet.</div>
     </div>
 
+      <div class="panel"><h3>Team schedule</h3><p style="margin:0 0 12px">See who is scheduled alongside you.</p><table><thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>Time</th></tr></thead><tbody id="teamScheduleBody"></tbody></table><div class="empty-state hidden" id="teamScheduleEmpty">No team shifts scheduled.</div></div>
+
     <div class="panel">
       <div class="panel-header">
         <div>
@@ -146,7 +148,10 @@ async function init() {
   await loadLeave();
   await loadOpenShifts();
   await loadAvailability();
+  await loadTeamSchedule();
 }
+
+async function loadTeamSchedule() { const { schedules } = await (await apiFetch('/shifts/schedule/team')).json(); document.getElementById('teamScheduleBody').innerHTML = schedules.map((shift) => `<tr><td>${shift.employee_name}</td><td>${shift.department}</td><td>${shift.shift_date}</td><td>${shift.start_time} - ${shift.end_time}</td></tr>`).join(''); document.getElementById('teamScheduleEmpty').classList.toggle('hidden', schedules.length > 0); }
 
 async function loadOpenShifts() { const { openShifts } = await (await apiFetch('/shifts/open-shifts')).json(); document.getElementById('openShiftsBody').innerHTML = openShifts.map((shift) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)"><strong>${shift.shift_date}</strong> · ${shift.start_time}-${shift.end_time}<br><small>${shift.note || 'Open shift'}</small> <button class="btn-outline" data-open-shift-id="${shift.id}">Claim</button></div>`).join('') || '<div class="empty-state">No open shifts.</div>'; document.querySelectorAll('[data-open-shift-id]').forEach((button) => button.addEventListener('click', async () => { const response = await apiFetch(`/shifts/open-shifts/${button.dataset.openShiftId}/claim`, { method: 'POST' }); if (response.ok) await loadOpenShifts(); else alert((await response.json()).error); })); }
 const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

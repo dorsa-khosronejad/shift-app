@@ -156,6 +156,15 @@ router.get('/schedule/mine', requireAuth, (req, res) => {
   ).all(req.user.id);
   res.json({ schedules });
 });
+router.get('/schedule/team', requireAuth, (req, res) => {
+  const schedules = db.prepare(
+    `SELECT s.id, s.employee_id, s.shift_date, s.start_time, s.end_time,
+            u.name AS employee_name, u.department
+     FROM schedules s JOIN users u ON u.id = s.employee_id
+     ORDER BY s.shift_date, s.start_time, u.name LIMIT 500`
+  ).all();
+  res.json({ schedules });
+});
 
 router.get('/schedule', requireAuth, requireRole('manager', 'admin'), (req, res) => {
   const schedules = db.prepare(
