@@ -47,13 +47,17 @@
       </form>
       <button type="button" class="btn-outline btn-block" id="forgotPasswordBtn">Forgot password?</button>
       <form id="forgotPasswordForm" class="hidden">
-        <p>Verify your email and phone number, then choose a new password.</p>
+        <p>Verify your email and phone number. We will email you a secure reset link.</p>
         <div class="field"><label for="forgotEmail">Work email</label><input type="email" id="forgotEmail" required autocomplete="email"></div>
         <div class="field"><label for="forgotPhone">Phone number</label><input type="tel" id="forgotPhone" required autocomplete="tel"></div>
-        <div class="field"><label for="forgotNewPassword">New password</label><input type="password" id="forgotNewPassword" required minlength="8" autocomplete="new-password"></div>
         <button type="submit" class="btn-primary btn-block">Request password reset</button>
       </form>
       <div class="alert alert-success alert-hidden" id="signupSuccess"></div>
+      <form id="resetForm" class="hidden">
+        <p>Choose a new password for your account.</p>
+        <div class="field"><label for="resetPassword">New password</label><input type="password" id="resetPassword" required minlength="8" autocomplete="new-password"></div>
+        <button type="submit" class="btn-primary btn-block">Set new password</button>
+      </form>
     </div>
   </div>
 </div>
@@ -76,6 +80,7 @@ const signInTab = document.getElementById('signInTab');
 const signUpTab = document.getElementById('signUpTab');
 const forgotPasswordBtn = document.getElementById('forgotPasswordBtn');
 const forgotPasswordForm = document.getElementById('forgotPasswordForm');
+const resetForm = document.getElementById('resetForm');
 
 function showLogin() {
   signInTab.classList.add('active');
@@ -172,12 +177,30 @@ forgotPasswordForm.addEventListener('submit', async (event) => {
     body: JSON.stringify({
       email: document.getElementById('forgotEmail').value,
       phone: document.getElementById('forgotPhone').value,
-      newPassword: document.getElementById('forgotNewPassword').value,
     }),
   });
   const data = await res.json();
   errorBox.textContent = data.error || data.message;
   errorBox.classList.remove('alert-hidden');
+});
+
+const resetToken = new URLSearchParams(window.location.search).get('reset');
+if (resetToken) {
+  loginForm.classList.add('hidden');
+  signupForm.classList.add('hidden');
+  forgotPasswordBtn.classList.add('hidden');
+  resetForm.classList.remove('hidden');
+  document.getElementById('formTitle').textContent = 'Set new password';
+  document.getElementById('formSubtitle').textContent = 'This secure link expires after 15 minutes.';
+}
+
+resetForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const response = await fetch(`${API_BASE}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, newPassword: document.getElementById('resetPassword').value }) });
+  const data = await response.json();
+  errorBox.textContent = data.error || data.message;
+  errorBox.classList.remove('alert-hidden');
+  if (response.ok) resetForm.classList.add('hidden');
 });
 
 // If already logged in (valid refresh cookie), skip straight past login

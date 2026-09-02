@@ -43,6 +43,10 @@ npx serve -l 5500
 Then open `http://localhost:5500`. If you use a different port, update
 `CORS_ORIGIN` in `backend/.env` to match.
 
+Password recovery sends a one-time link by email. Configure `FRONTEND_URL`,
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and
+`SMTP_FROM` in the backend environment. Do not commit SMTP credentials.
+
 ## Demo accounts (seeded automatically)
 
 | Role     | Email                | Password      |

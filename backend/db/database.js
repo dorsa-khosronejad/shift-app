@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS time_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -99,6 +108,7 @@ CREATE TABLE IF NOT EXISTS wellbeing_reports (
 
 CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
 CREATE INDEX IF NOT EXISTS idx_sick_leave_status ON sick_leave_requests(status);

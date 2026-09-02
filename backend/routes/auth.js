@@ -1,4 +1,6 @@
 const express = require('express');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
@@ -43,6 +45,13 @@ const resetLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+}) : null;
 
 // ---------- POST /api/auth/login ----------
 router.post(
@@ -246,19 +255,48 @@ router.post(
   }
 );
 
-// Self-service reset uses two account-held identifiers and revokes all sessions.
+// Self-service reset sends a single-use link; the password is never sent by email.
 router.post('/forgot-password', resetLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('phone').trim().isMobilePhone('any'),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid work email and phone number' });
+  const user = db.prepare('SELECT id FROM users WHERE email = ? AND phone = ?').get(req.body.email, req.body.phone.trim());
+  if (!user || !mailer || !process.env.FRONTEND_URL || !process.env.SMTP_FROM) {
+    return res.status(user && !mailer ? 503 : 200).json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
+  }
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? OR expires_at < ?').run(user.id, new Date().toISOString());
+  db.prepare('INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(user.id, tokenHash, expiresAt);
+  const resetUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/index.html?reset=${rawToken}`;
+  mailer.sendMail({
+    from: process.env.SMTP_FROM,
+    to: req.body.email,
+    subject: 'Reset your Shift & Care password',
+    text: `Use this link within 15 minutes to reset your password: ${resetUrl}\n\nIf you did not request this, ignore this email.`,
+  }).catch((error) => console.error('Password reset email failed:', error.message));
+  res.json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
+});
+
+router.post('/reset-password', resetLimiter, [
+  body('token').isHexadecimal().isLength({ min: 64, max: 64 }),
   body('newPassword').isLength({ min: 8 }).matches(/\d/),
 ], (req, res) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid email, phone number, and password with 8+ characters and a number' });
-  const user = db.prepare('SELECT id FROM users WHERE email = ? AND phone = ?').get(req.body.email, req.body.phone.trim());
-  if (!user) return res.status(401).json({ error: 'The email and phone number do not match an account' });
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Use a password with 8+ characters and a number' });
+  const tokenHash = crypto.createHash('sha256').update(req.body.token).digest('hex');
+  const token = db.prepare('SELECT * FROM password_reset_tokens WHERE token_hash = ? AND used = 0').get(tokenHash);
+  if (!token || new Date(token.expires_at) < new Date()) return res.status(401).json({ error: 'This reset link is invalid or expired' });
   const passwordHash = bcrypt.hashSync(req.body.newPassword, 12);
-  db.prepare('UPDATE users SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL WHERE id = ?').run(passwordHash, user.id);
-  db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?').run(user.id);
+  const reset = db.transaction(() => {
+    db.prepare('UPDATE users SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL WHERE id = ?').run(passwordHash, token.user_id);
+    db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?').run(token.user_id);
+    db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(token.id);
+  });
+  reset();
   res.json({ message: 'Password reset successfully. You can now sign in.' });
 });
 
