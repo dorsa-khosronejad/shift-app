@@ -24,6 +24,16 @@
   <div class="main">
 
     <div class="panel">
+      <h3>Manual shift corrections</h3>
+      <p style="margin:0 0 12px">Review missed clock-in and clock-out requests before they affect hours.</p>
+      <table>
+        <thead><tr><th>Staff</th><th>Shift</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+        <tbody id="requestsBody"></tbody>
+      </table>
+      <div class="empty-state hidden" id="requestsEmpty">No correction requests.</div>
+    </div>
+
+    <div class="panel">
       <h3>Team shifts</h3>
       <p style="margin:0 0 12px">Most recent 200 entries across all staff.</p>
       <table>
@@ -54,6 +64,26 @@ async function init() {
   document.getElementById('userName').textContent = user.name;
   await loadTeam();
   await loadReports();
+  await loadRequests();
+}
+
+async function loadRequests() {
+  const res = await apiFetch('/shifts/requests');
+  const { requests } = await res.json();
+  const body = document.getElementById('requestsBody');
+  const empty = document.getElementById('requestsEmpty');
+  body.innerHTML = '';
+  empty.classList.toggle('hidden', requests.length > 0);
+  for (const request of requests) {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${request.user_name}</td><td>${formatDateTime(request.clock_in)} - ${formatDateTime(request.clock_out)}</td><td>${request.reason}</td><td><span class="tag tag-${request.status}">${request.status}</span></td><td>${request.status === 'pending' ? `<button class="btn-outline" data-request-id="${request.id}" data-status="approved">Approve</button> <button class="btn-outline" data-request-id="${request.id}" data-status="rejected">Reject</button>` : ''}</td>`;
+    body.appendChild(row);
+  }
+  body.querySelectorAll('[data-request-id]').forEach((button) => button.addEventListener('click', async () => {
+    await apiFetch(`/shifts/requests/${button.dataset.requestId}`, { method: 'PATCH', body: JSON.stringify({ status: button.dataset.status }) });
+    await loadRequests();
+    await loadTeam();
+  }));
 }
 
 async function loadTeam() {

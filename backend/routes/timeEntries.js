@@ -30,6 +30,12 @@ function minutesBetween(startIso, endIso) {
   return Math.max(0, Math.round((end - start) / 60000));
 }
 
+function parseManualDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : toSqliteUTC(date);
+}
+
 // ---------- POST /api/shifts/clock-in ----------
 router.post('/clock-in', requireAuth, (req, res) => {
   const openEntry = db
@@ -65,6 +71,69 @@ router.post('/clock-out', requireAuth, [body('note').optional().trim().isLength(
 
   const entry = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(openEntry.id);
   res.json({ entry });
+});
+
+// ---------- POST /api/shifts/requests ----------
+// Manual corrections require manager approval before becoming time entries.
+router.post('/requests', requireAuth, [
+  body('clockIn').custom((value) => !!parseManualDate(value)).withMessage('Enter a valid clock-in time'),
+  body('clockOut').custom((value) => !!parseManualDate(value)).withMessage('Enter a valid clock-out time'),
+  body('reason').trim().isLength({ min: 3, max: 500 }),
+], (req, res) => {
+  const errors = validationResult(req);
+  const clockIn = parseManualDate(req.body.clockIn);
+  const clockOut = parseManualDate(req.body.clockOut);
+  if (!errors.isEmpty() || !clockIn || !clockOut || new Date(`${clockOut}Z`) <= new Date(`${clockIn}Z`)) {
+    return res.status(400).json({ error: 'Enter a valid time range and reason' });
+  }
+
+  const result = db.prepare(
+    'INSERT INTO shift_requests (user_id, clock_in, clock_out, reason) VALUES (?, ?, ?, ?)'
+  ).run(req.user.id, clockIn, clockOut, req.body.reason.trim());
+  const request = db.prepare('SELECT * FROM shift_requests WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json({ request });
+});
+
+// ---------- GET /api/shifts/requests/mine ----------
+router.get('/requests/mine', requireAuth, (req, res) => {
+  const requests = db.prepare(
+    'SELECT * FROM shift_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 50'
+  ).all(req.user.id);
+  res.json({ requests });
+});
+
+// ---------- GET /api/shifts/requests ----------
+router.get('/requests', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const requests = db.prepare(
+    `SELECT sr.*, u.name AS user_name, u.department
+     FROM shift_requests sr JOIN users u ON u.id = sr.user_id
+     ORDER BY CASE sr.status WHEN 'pending' THEN 0 ELSE 1 END, sr.created_at DESC
+     LIMIT 200`
+  ).all();
+  res.json({ requests });
+});
+
+// ---------- PATCH /api/shifts/requests/:id ----------
+router.patch('/requests/:id', requireAuth, requireRole('manager', 'admin'), [
+  body('status').isIn(['approved', 'rejected']),
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid request status' });
+
+  const request = db.prepare('SELECT * FROM shift_requests WHERE id = ?').get(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Shift request not found' });
+  if (request.status !== 'pending') return res.status(409).json({ error: 'This request was already reviewed' });
+
+  const review = db.transaction(() => {
+    db.prepare('UPDATE shift_requests SET status = ?, reviewed_by = ?, reviewed_at = datetime(\'now\') WHERE id = ?')
+      .run(req.body.status, req.user.id, request.id);
+    if (req.body.status === 'approved') {
+      db.prepare('INSERT INTO time_entries (user_id, clock_in, clock_out, note) VALUES (?, ?, ?, ?)')
+        .run(request.user_id, request.clock_in, request.clock_out, `Manual correction: ${request.reason}`);
+    }
+  });
+  review();
+  res.json({ status: req.body.status });
 });
 
 // ---------- GET /api/shifts/mine ----------

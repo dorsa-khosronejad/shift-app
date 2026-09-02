@@ -42,6 +42,27 @@
     </div>
 
     <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h3>Forgot to clock in or out?</h3>
+          <p style="margin:0">Send a correction to your manager for approval.</p>
+        </div>
+      </div>
+      <div class="alert alert-success alert-hidden" id="requestSuccess">Correction sent to your manager.</div>
+      <div class="alert alert-error alert-hidden" id="requestError"></div>
+      <form id="requestForm">
+        <div class="field"><label for="manualClockIn">Clock-in time</label><input id="manualClockIn" type="datetime-local" required></div>
+        <div class="field"><label for="manualClockOut">Clock-out time</label><input id="manualClockOut" type="datetime-local" required></div>
+        <div class="field"><label for="manualReason">Reason</label><textarea id="manualReason" rows="2" maxlength="500" required placeholder="Why was the punch missed?"></textarea></div>
+        <button type="submit" class="btn-outline">Request correction</button>
+      </form>
+      <table style="margin-top:18px">
+        <thead><tr><th>Requested shift</th><th>Reason</th><th>Status</th></tr></thead>
+        <tbody id="requestsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
       <h3>Recent shifts</h3>
       <table>
         <thead><tr><th>Clocked in</th><th>Clocked out</th><th>Duration</th></tr></thead>
@@ -90,6 +111,7 @@ async function init() {
   if (!user) return;
   document.getElementById('userName').textContent = user.name;
   await loadStatus();
+  await loadRequests();
 }
 
 async function loadStatus() {
@@ -98,6 +120,15 @@ async function loadStatus() {
   currentlyClockedIn = data.currentlyClockedIn;
   renderStatus();
   renderHistory(data.entries);
+}
+
+async function loadRequests() {
+  const res = await apiFetch('/shifts/requests/mine');
+  const { requests } = await res.json();
+  document.getElementById('requestsBody').innerHTML = requests.map((request) => `
+    <tr><td>${formatDateTime(request.clock_in)} - ${formatDateTime(request.clock_out)}</td>
+    <td>${request.reason}</td><td><span class="tag tag-${request.status}">${request.status}</span></td></tr>
+  `).join('');
 }
 
 function renderStatus() {
@@ -156,6 +187,28 @@ document.getElementById('clockBtn').addEventListener('click', async () => {
   }
 
   await loadStatus();
+});
+
+document.getElementById('requestForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  document.getElementById('requestError').classList.add('alert-hidden');
+  const response = await apiFetch('/shifts/requests', {
+    method: 'POST',
+    body: JSON.stringify({
+      clockIn: document.getElementById('manualClockIn').value,
+      clockOut: document.getElementById('manualClockOut').value,
+      reason: document.getElementById('manualReason').value,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    document.getElementById('requestError').textContent = data.error || 'Could not send correction.';
+    document.getElementById('requestError').classList.remove('alert-hidden');
+    return;
+  }
+  document.getElementById('requestForm').reset();
+  document.getElementById('requestSuccess').classList.remove('alert-hidden');
+  await loadRequests();
 });
 
 document.getElementById('reportForm').addEventListener('submit', async (e) => {
