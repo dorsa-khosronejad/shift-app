@@ -24,6 +24,8 @@
 
   <div class="main">
 
+    <div class="panel"><h3>Weekly hour targets</h3><p style="margin:0 0 12px">Targets power overtime warnings and payroll export.</p><div id="targetsBody"></div></div>
+
     <div class="panel">
       <div class="panel-header"><div><h3>Weekly calendar</h3><p style="margin:0">Drag a scheduled shift to another day.</p></div><button class="btn-outline" id="previousWeek">Previous week</button><button class="btn-outline" id="nextWeek">Next week</button></div>
       <div id="calendarGrid" class="calendar-grid"></div>
@@ -118,6 +120,13 @@ async function init() {
   await loadLeave();
   await loadFeedback();
   await loadCalendar();
+  await loadTargets();
+}
+
+async function loadTargets() {
+  const { targets } = await (await apiFetch('/shifts/targets')).json();
+  document.getElementById('targetsBody').innerHTML = targets.map((target) => `<div class="target-row"><span>${target.name}</span><input type="number" min="0" max="168" step="0.5" value="${target.target_hours}" data-target-user="${target.id}"><span>hours</span></div>`).join('');
+  document.querySelectorAll('[data-target-user]').forEach((input) => input.addEventListener('change', async () => { await apiFetch(`/shifts/targets/${input.dataset.targetUser}`, { method: 'PUT', body: JSON.stringify({ targetHours: input.value }) }); }));
 }
 
 let calendarOffset = 0;

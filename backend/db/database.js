@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS time_entries (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS breaks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  time_entry_id INTEGER NOT NULL REFERENCES time_entries(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ended_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS weekly_targets (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  target_hours REAL NOT NULL DEFAULT 40 CHECK(target_hours >= 0 AND target_hours <= 168),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS shift_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -138,6 +152,7 @@ CREATE TABLE IF NOT EXISTS wellbeing_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id);
+CREATE INDEX IF NOT EXISTS idx_breaks_entry ON breaks(time_entry_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);

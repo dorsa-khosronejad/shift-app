@@ -31,6 +31,11 @@ function minutesBetween(startIso, endIso) {
   return Math.max(0, Math.round((end - start) / 60000));
 }
 
+function breakMinutesForEntry(entryId) {
+  const rows = db.prepare('SELECT started_at, ended_at FROM breaks WHERE time_entry_id = ?').all(entryId);
+  return rows.reduce((total, item) => item.ended_at ? total + minutesBetween(item.started_at, item.ended_at) : total, 0);
+}
+
 function parseManualDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
   const date = new Date(value);
@@ -79,6 +84,27 @@ router.post('/clock-out', requireAuth, [body('note').optional().trim().isLength(
 
   const entry = db.prepare('SELECT * FROM time_entries WHERE id = ?').get(openEntry.id);
   res.json({ entry });
+});
+
+router.post('/break/start', requireAuth, (req, res) => {
+  const entry = db.prepare('SELECT id FROM time_entries WHERE user_id = ? AND clock_out IS NULL').get(req.user.id);
+  if (!entry) return res.status(409).json({ error: 'Clock in before starting a break' });
+  const openBreak = db.prepare('SELECT id FROM breaks WHERE user_id = ? AND ended_at IS NULL').get(req.user.id);
+  if (openBreak) return res.status(409).json({ error: 'You are already on break' });
+  const result = db.prepare('INSERT INTO breaks (time_entry_id, user_id) VALUES (?, ?)').run(entry.id, req.user.id);
+  res.status(201).json({ id: result.lastInsertRowid });
+});
+
+router.post('/break/end', requireAuth, (req, res) => {
+  const openBreak = db.prepare('SELECT id FROM breaks WHERE user_id = ? AND ended_at IS NULL').get(req.user.id);
+  if (!openBreak) return res.status(409).json({ error: 'You are not currently on break' });
+  db.prepare("UPDATE breaks SET ended_at = datetime('now') WHERE id = ?").run(openBreak.id);
+  res.json({ message: 'Break ended' });
+});
+
+router.get('/breaks/mine', requireAuth, (req, res) => {
+  const breaks = db.prepare('SELECT b.*, te.clock_in, te.clock_out FROM breaks b JOIN time_entries te ON te.id = b.time_entry_id WHERE b.user_id = ? ORDER BY b.started_at DESC LIMIT 100').all(req.user.id);
+  res.json({ breaks });
 });
 
 // ---------- POST /api/shifts/requests ----------
@@ -350,7 +376,22 @@ router.get('/mine', requireAuth, (req, res) => {
     .prepare('SELECT * FROM time_entries WHERE user_id = ? ORDER BY clock_in DESC LIMIT 50')
     .all(req.user.id);
   const openEntry = entries.find((e) => !e.clock_out) || null;
+  if (openEntry && new Date() - new Date(openEntry.clock_in.replace(' ', 'T') + 'Z') > 12 * 60 * 60 * 1000) {
+    const existingReminder = db.prepare("SELECT id FROM notifications WHERE user_id = ? AND type = 'missing-clock-out' AND created_at >= date('now')").get(req.user.id);
+    if (!existingReminder) notifyUser(req.user.id, { type: 'missing-clock-out', title: 'Missing clock-out', message: 'You have an open shift older than 12 hours. Please clock out or submit a correction.' });
+  }
   res.json({ entries, currentlyClockedIn: !!openEntry });
+});
+
+router.get('/targets', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const targets = db.prepare("SELECT u.id, u.name, u.department, COALESCE(wt.target_hours, 40) AS target_hours FROM users u LEFT JOIN weekly_targets wt ON wt.user_id = u.id WHERE u.role = 'employee' AND u.is_active = 1 ORDER BY u.name").all();
+  res.json({ targets });
+});
+
+router.put('/targets/:userId', requireAuth, requireRole('manager', 'admin'), [body('targetHours').isFloat({ min: 0, max: 168 })], (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Target must be between 0 and 168 hours' });
+  db.prepare('INSERT INTO weekly_targets (user_id, target_hours) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET target_hours = excluded.target_hours, updated_at = datetime(\'now\')').run(req.params.userId, req.body.targetHours);
+  res.json({ message: 'Weekly target updated' });
 });
 
 // ---------- GET /api/shifts/team ----------
@@ -430,7 +471,7 @@ router.get('/summary/weekly', requireAuth, requireRole('manager', 'admin'), (req
 
   const rows = db
     .prepare(
-      `SELECT te.user_id, u.name AS user_name, u.department, te.clock_in, te.clock_out
+      `SELECT te.id, te.user_id, u.name AS user_name, u.department, te.clock_in, te.clock_out
        FROM time_entries te
        JOIN users u ON u.id = te.user_id
        WHERE te.clock_in >= ? AND te.clock_in < ?`
@@ -443,14 +484,17 @@ router.get('/summary/weekly', requireAuth, requireRole('manager', 'admin'), (req
       totals[row.user_id] = { userId: row.user_id, name: row.user_name, department: row.department, minutes: 0, openShift: false };
     }
     if (row.clock_out) {
-      totals[row.user_id].minutes += minutesBetween(row.clock_in, row.clock_out);
+      totals[row.user_id].minutes += Math.max(0, minutesBetween(row.clock_in, row.clock_out) - breakMinutesForEntry(row.id));
     } else {
       totals[row.user_id].openShift = true; // still clocked in — hours will grow
     }
   }
 
   const summary = Object.values(totals)
-    .map((t) => ({ ...t, hours: Math.round((t.minutes / 60) * 100) / 100 }))
+    .map((t) => {
+      const target = db.prepare('SELECT COALESCE(target_hours, 40) AS target_hours FROM weekly_targets WHERE user_id = ?').get(t.userId)?.target_hours || 40;
+      return { ...t, hours: Math.round((t.minutes / 60) * 100) / 100, targetHours: target, overtimeHours: Math.max(0, Math.round(((t.minutes / 60) - target) * 100) / 100) };
+    })
     .sort((a, b) => b.minutes - a.minutes);
 
   res.json({ weekStart: start, weekEnd: end, summary });
@@ -483,7 +527,7 @@ router.get('/export', requireAuth, requireRole('manager', 'admin'), (req, res) =
 
   const rows = db
     .prepare(
-      `SELECT u.name AS user_name, u.department, te.clock_in, te.clock_out
+      `SELECT te.id, te.user_id, u.name AS user_name, u.department, te.clock_in, te.clock_out
        FROM time_entries te
        JOIN users u ON u.id = te.user_id
        WHERE te.clock_in >= ? AND te.clock_in <= ?
@@ -493,12 +537,15 @@ router.get('/export', requireAuth, requireRole('manager', 'admin'), (req, res) =
 
   const escapeCsv = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
 
-  const header = ['Staff', 'Department', 'Clock in (UTC)', 'Clock out (UTC)', 'Hours'];
+  const header = ['Staff', 'Department', 'Clock in (UTC)', 'Clock out (UTC)', 'Break minutes', 'Hours', 'Overtime hours'];
   const lines = [header.map(escapeCsv).join(',')];
 
   for (const r of rows) {
-    const hours = r.clock_out ? (minutesBetween(r.clock_in, r.clock_out) / 60).toFixed(2) : 'in progress';
-    lines.push([r.user_name, r.department, r.clock_in, r.clock_out || '', hours].map(escapeCsv).join(','));
+    const breakMinutes = breakMinutesForEntry(r.id);
+    const hours = r.clock_out ? ((minutesBetween(r.clock_in, r.clock_out) - breakMinutes) / 60).toFixed(2) : 'in progress';
+    const target = db.prepare('SELECT COALESCE(target_hours, 40) AS target_hours FROM weekly_targets WHERE user_id = ?').get(r.user_id)?.target_hours || 40;
+    const overtime = hours === 'in progress' ? 'in progress' : Math.max(0, Number(hours) - target).toFixed(2);
+    lines.push([r.user_name, r.department, r.clock_in, r.clock_out || '', breakMinutes, hours, overtime].map(escapeCsv).join(','));
   }
 
   const csv = lines.join('\r\n');

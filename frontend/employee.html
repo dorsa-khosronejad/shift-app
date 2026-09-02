@@ -63,6 +63,7 @@
           <span class="status-dot off"></span> Checking status…
         </div>
         <button class="btn-primary" id="clockBtn" disabled>—</button>
+        <button class="btn-outline" id="breakBtn" disabled>Start break</button>
       </div>
     </div>
 
@@ -177,6 +178,12 @@ async function loadStatus() {
   currentlyClockedIn = data.currentlyClockedIn;
   renderStatus();
   renderHistory(data.entries);
+  const breakData = await (await apiFetch('/shifts/breaks/mine')).json();
+  const onBreak = breakData.breaks.some((item) => !item.ended_at);
+  const breakButton = document.getElementById('breakBtn');
+  breakButton.disabled = !currentlyClockedIn;
+  breakButton.dataset.onBreak = String(onBreak);
+  breakButton.textContent = onBreak ? 'End break' : 'Start break';
 }
 
 async function loadRequests() {
@@ -260,6 +267,13 @@ document.getElementById('clockBtn').addEventListener('click', async () => {
   }
 
   await loadStatus();
+});
+
+document.getElementById('breakBtn').addEventListener('click', async () => {
+  const button = document.getElementById('breakBtn');
+  const endpoint = button.dataset.onBreak === 'true' ? '/shifts/break/end' : '/shifts/break/start';
+  const response = await apiFetch(endpoint, { method: 'POST', body: '{}' });
+  if (response.ok) await loadStatus();
 });
 
 document.getElementById('leaveForm').addEventListener('submit', async (event) => {
