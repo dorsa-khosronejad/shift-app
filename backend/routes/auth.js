@@ -36,6 +36,14 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many reset attempts. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ---------- POST /api/auth/login ----------
 router.post(
   '/login',
@@ -238,15 +246,20 @@ router.post(
   }
 );
 
-// Recovery requests are intentionally generic until an email/SMS provider is configured.
-router.post('/forgot-password', [
+// Self-service reset uses two account-held identifiers and revokes all sessions.
+router.post('/forgot-password', resetLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('phone').trim().isMobilePhone('any'),
+  body('newPassword').isLength({ min: 8 }).matches(/\d/),
 ], (req, res) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid work email and phone number' });
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid email, phone number, and password with 8+ characters and a number' });
   const user = db.prepare('SELECT id FROM users WHERE email = ? AND phone = ?').get(req.body.email, req.body.phone.trim());
-  res.json({ message: user ? 'Your request was received. Contact your administrator for a secure password reset.' : 'If those details match an account, recovery instructions will be provided by your administrator.' });
+  if (!user) return res.status(401).json({ error: 'The email and phone number do not match an account' });
+  const passwordHash = bcrypt.hashSync(req.body.newPassword, 12);
+  db.prepare('UPDATE users SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL WHERE id = ?').run(passwordHash, user.id);
+  db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?').run(user.id);
+  res.json({ message: 'Password reset successfully. You can now sign in.' });
 });
 
 // ---------- POST /api/auth/change-password ----------

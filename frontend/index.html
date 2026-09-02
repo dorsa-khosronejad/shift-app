@@ -47,9 +47,10 @@
       </form>
       <button type="button" class="btn-outline btn-block" id="forgotPasswordBtn">Forgot password?</button>
       <form id="forgotPasswordForm" class="hidden">
-        <p>Enter the email and phone number on your account. Your administrator will provide a secure reset.</p>
+        <p>Verify your email and phone number, then choose a new password.</p>
         <div class="field"><label for="forgotEmail">Work email</label><input type="email" id="forgotEmail" required autocomplete="email"></div>
         <div class="field"><label for="forgotPhone">Phone number</label><input type="tel" id="forgotPhone" required autocomplete="tel"></div>
+        <div class="field"><label for="forgotNewPassword">New password</label><input type="password" id="forgotNewPassword" required minlength="8" autocomplete="new-password"></div>
         <button type="submit" class="btn-primary btn-block">Request password reset</button>
       </form>
       <div class="alert alert-success alert-hidden" id="signupSuccess"></div>
@@ -171,6 +172,7 @@ forgotPasswordForm.addEventListener('submit', async (event) => {
     body: JSON.stringify({
       email: document.getElementById('forgotEmail').value,
       phone: document.getElementById('forgotPhone').value,
+      newPassword: document.getElementById('forgotNewPassword').value,
     }),
   });
   const data = await res.json();
