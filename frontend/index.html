@@ -34,6 +34,10 @@
           <label for="password">Password</label>
           <input type="password" id="password" required autocomplete="current-password">
         </div>
+        <div class="field hidden" id="otpField">
+          <label for="otp">Authenticator code</label>
+          <input type="text" id="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code">
+        </div>
         <button type="submit" class="btn-primary btn-block" id="loginBtn">Sign in</button>
       </form>
       <form id="signupForm" class="hidden">
@@ -74,6 +78,7 @@ setInterval(tick, 1000 * 30);
 const form = document.getElementById('loginForm');
 const errorBox = document.getElementById('loginError');
 const btn = document.getElementById('loginBtn');
+let twoFactorChallenge = null;
 const loginForm = document.getElementById('loginForm');
 const signupForm = document.getElementById('signupForm');
 const signInTab = document.getElementById('signInTab');
@@ -122,11 +127,22 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify({
         email: document.getElementById('email').value,
         password: document.getElementById('password').value,
+        otp: document.getElementById('otp').value || undefined,
+        challenge: twoFactorChallenge || undefined,
       }),
     });
     const data = await res.json();
 
     if (!res.ok) {
+      if (data.code === 'TWO_FACTOR_REQUIRED') {
+        twoFactorChallenge = data.challenge;
+        document.getElementById('otpField').classList.remove('hidden');
+        document.getElementById('otp').required = true;
+        document.getElementById('otp').focus();
+        errorBox.textContent = 'Enter the 6-digit code from your authenticator app.';
+        errorBox.classList.remove('alert-hidden');
+        return;
+      }
       errorBox.textContent = data.error || 'Something went wrong. Try again.';
       errorBox.classList.remove('alert-hidden');
       return;

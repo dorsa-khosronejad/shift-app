@@ -7,6 +7,7 @@ const { body, validationResult } = require('express-validator');
 const db = require('../db/database');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../utils/notifications');
+const { createTotpSecret, verifyTotp, recordLogin, recordAudit } = require('../utils/security');
 const {
   signAccessToken,
   generateRefreshToken,
@@ -46,6 +47,21 @@ const resetLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+function hashToken(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function createChallenge(userId) {
+  const raw = crypto.randomBytes(32).toString('hex');
+  db.prepare('DELETE FROM two_factor_challenges WHERE user_id = ? OR expires_at < ?').run(userId, new Date().toISOString());
+  db.prepare('INSERT INTO two_factor_challenges (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(
+    userId,
+    hashToken(raw),
+    new Date(Date.now() + 5 * 60 * 1000).toISOString()
+  );
+  return raw;
+}
+
 
 // ---------- POST /api/auth/login ----------
 router.post(
@@ -69,11 +85,13 @@ router.post(
     const genericError = { error: 'Incorrect email or password' };
 
     if (!user || !user.is_active) {
+      recordLogin({ email, success: false, request: req, failureReason: 'inactive-or-unknown-account' });
       return res.status(401).json(genericError);
     }
 
     // Account lockout check
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      recordLogin({ userId: user.id, email, success: false, request: req, failureReason: 'account-locked' });
       const minutesLeft = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
       return res.status(423).json({
         error: `Account temporarily locked due to repeated failed logins. Try again in ${minutesLeft} minute(s).`,
@@ -83,6 +101,7 @@ router.post(
     const passwordMatches = bcrypt.compareSync(password, user.password_hash);
 
     if (!passwordMatches) {
+      recordLogin({ userId: user.id, email, success: false, request: req, failureReason: 'invalid-password' });
       const attempts = user.failed_login_attempts + 1;
       let lockedUntil = null;
 
@@ -101,8 +120,21 @@ router.post(
       return res.status(401).json(genericError);
     }
 
+    if (user.two_factor_enabled) {
+      const challenge = req.body.challenge;
+      const challengeRow = challenge && db.prepare('SELECT * FROM two_factor_challenges WHERE user_id = ? AND token_hash = ? AND used = 0').get(user.id, hashToken(challenge));
+      if (!req.body.otp || !challengeRow || new Date(challengeRow.expires_at) < new Date() || !verifyTotp(user.two_factor_secret, req.body.otp)) {
+        const challengeToken = challengeRow ? challenge : createChallenge(user.id);
+        recordLogin({ userId: user.id, email, success: false, request: req, failureReason: 'two-factor-required-or-invalid' });
+        return res.status(401).json({ error: 'Two-factor authentication is required', code: 'TWO_FACTOR_REQUIRED', challenge: challengeToken });
+      }
+      db.prepare('UPDATE two_factor_challenges SET used = 1 WHERE id = ?').run(challengeRow.id);
+    }
+
     // Successful login: reset failed-attempt counter, issue tokens
     db.prepare('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?').run(user.id);
+    recordLogin({ userId: user.id, email, success: true, method: user.two_factor_enabled ? 'password+2fa' : 'password', request: req });
+    recordAudit({ actorUserId: user.id, action: 'login-success', request: req });
 
     const accessToken = signAccessToken(user);
     const { raw, hash, expiresAt } = generateRefreshToken();
@@ -114,7 +146,7 @@ router.post(
     res.cookie('refreshToken', raw, cookieOptions);
     res.json({
       accessToken,
-      user: { id: user.id, name: user.name, businessId: user.business_id, email: user.email, phone: user.phone, role: user.role, department: user.department },
+      user: { id: user.id, name: user.name, businessId: user.business_id, email: user.email, phone: user.phone, role: user.role, department: user.department, twoFactorEnabled: !!user.two_factor_enabled },
     });
   }
 );
@@ -172,6 +204,54 @@ router.post('/logout', (req, res) => {
 router.get('/me', requireAuth, (req, res) => {
   const user = db.prepare('SELECT id, name, business_id AS businessId, email, phone, role, department FROM users WHERE id = ?').get(req.user.id);
   res.json({ user });
+});
+
+router.get('/login-history', requireAuth, (req, res) => {
+  const history = db.prepare('SELECT id, success, method, ip_address, user_agent, failure_reason, created_at FROM login_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 100').all(req.user.id);
+  res.json({ history });
+});
+
+router.get('/2fa/status', requireAuth, (req, res) => {
+  const user = db.prepare('SELECT two_factor_enabled FROM users WHERE id = ?').get(req.user.id);
+  res.json({ enabled: !!user.two_factor_enabled });
+});
+
+router.post('/2fa/setup', requireAuth, (req, res) => {
+  const secret = createTotpSecret();
+  db.prepare('UPDATE users SET two_factor_secret = ?, two_factor_enabled = 0 WHERE id = ?').run(secret, req.user.id);
+  const user = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
+  const label = encodeURIComponent(`Shift & Care:${user.email}`);
+  res.json({ secret, otpauthUrl: `otpauth://totp/${label}?secret=${secret}&issuer=Shift%20%26%20Care` });
+});
+
+router.post('/2fa/enable', requireAuth, [body('code').matches(/^\d{6}$/)], (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Enter the 6-digit authenticator code' });
+  const user = db.prepare('SELECT two_factor_secret FROM users WHERE id = ?').get(req.user.id);
+  if (!user.two_factor_secret || !verifyTotp(user.two_factor_secret, req.body.code)) return res.status(400).json({ error: 'That authenticator code is invalid' });
+  db.prepare('UPDATE users SET two_factor_enabled = 1, email_verified_at = COALESCE(email_verified_at, datetime(\'now\')) WHERE id = ?').run(req.user.id);
+  recordAudit({ actorUserId: req.user.id, action: 'two-factor-enabled', request: req });
+  res.json({ message: 'Two-factor authentication enabled' });
+});
+
+router.post('/2fa/disable', requireAuth, [body('currentPassword').isString().notEmpty(), body('code').matches(/^\d{6}$/)], (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Enter your password and authenticator code' });
+  const user = db.prepare('SELECT password_hash, two_factor_secret FROM users WHERE id = ?').get(req.user.id);
+  if (!bcrypt.compareSync(req.body.currentPassword, user.password_hash) || !verifyTotp(user.two_factor_secret, req.body.code)) return res.status(401).json({ error: 'Password or authenticator code is incorrect' });
+  db.prepare('UPDATE users SET two_factor_secret = NULL, two_factor_enabled = 0 WHERE id = ?').run(req.user.id);
+  recordAudit({ actorUserId: req.user.id, action: 'two-factor-disabled', request: req });
+  res.json({ message: 'Two-factor authentication disabled' });
+});
+
+router.post('/verify-email', [body('token').isHexadecimal().isLength({ min: 64, max: 64 })], (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Invalid verification link' });
+  const token = db.prepare('SELECT * FROM email_verification_tokens WHERE token_hash = ? AND used = 0').get(hashToken(req.body.token));
+  if (!token || new Date(token.expires_at) < new Date()) return res.status(401).json({ error: 'This verification link is invalid or expired' });
+  db.transaction(() => {
+    db.prepare("UPDATE users SET email_verified_at = datetime('now') WHERE id = ?").run(token.user_id);
+    db.prepare('UPDATE email_verification_tokens SET used = 1 WHERE id = ?').run(token.id);
+  })();
+  recordAudit({ targetUserId: token.user_id, action: 'email-verified', request: req });
+  res.json({ message: 'Email verified. You can now sign in.' });
 });
 
 // ---------- POST /api/auth/register ----------
@@ -245,6 +325,13 @@ router.post(
        VALUES (?, ?, ?, ?, ?, 'employee', 'Housekeeping', 0)`
      ).run(`${firstName.trim()} ${familyName.trim()}`, businessId.trim(), email, phone.trim(), hash);
 
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    db.prepare('INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(result.lastInsertRowid, hashToken(rawToken), new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+    if (process.env.FRONTEND_URL && process.env.SMTP_HOST && process.env.SMTP_FROM) {
+      const verifyUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/verify-email.html?token=${rawToken}`;
+      sendEmail({ to: email, subject: 'Verify your Shift & Care email', text: `Verify your email within 24 hours: ${verifyUrl}` });
+    }
+
     res.status(201).json({ id: result.lastInsertRowid, message: 'Signup received. An administrator must activate your account before you can sign in.' });
   }
 );
@@ -290,6 +377,7 @@ router.post('/reset-password', resetLimiter, [
     db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(token.id);
   });
   reset();
+  recordAudit({ targetUserId: token.user_id, action: 'password-reset', request: req });
   res.json({ message: 'Password reset successfully. You can now sign in.' });
 });
 
@@ -324,6 +412,7 @@ router.post(
     // Revoke all existing refresh tokens so other sessions are logged out
     // after a password change — standard practice if a password may have leaked.
     db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?').run(user.id);
+    recordAudit({ actorUserId: user.id, action: 'password-changed', request: req });
 
     res.json({ message: 'Password changed. Please log in again.' });
   }

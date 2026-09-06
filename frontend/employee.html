@@ -37,6 +37,8 @@
 
     <div class="panel"><h3>My profile</h3><form id="profileForm"><div class="field"><label for="profileEmail">Email</label><input id="profileEmail" type="email" disabled></div><div class="field"><label for="profilePhone">Phone</label><input id="profilePhone" maxlength="40"></div><div class="field"><label for="profileBusinessId">Business ID</label><input id="profileBusinessId" maxlength="60"></div><button class="btn-outline" type="submit">Save profile</button></form><div class="alert alert-success alert-hidden" id="profileSuccess">Profile updated.</div></div>
 
+    <div class="panel"><h3>Account security</h3><p>Protect sign-in with an authenticator app and review recent login activity.</p><button class="btn-outline" id="setupTwoFactor" type="button">Set up two-factor authentication</button><div id="twoFactorSetup" class="hidden"><p>Enter this secret manually in your authenticator app:</p><code id="twoFactorSecret"></code><div class="field" style="margin-top:12px"><label for="twoFactorCode">6-digit code</label><input id="twoFactorCode" inputmode="numeric" maxlength="6"></div><button class="btn-primary" id="enableTwoFactor" type="button">Enable 2FA</button></div><div class="alert alert-success alert-hidden" id="securitySuccess"></div><table style="margin-top:18px"><thead><tr><th>Time</th><th>Result</th><th>Method</th><th>IP</th></tr></thead><tbody id="loginHistoryBody"></tbody></table></div>
+
     <div class="panel"><h3>Not available</h3><p style="margin:0 0 12px">Choose specific dates when you cannot work.</p><form id="unavailableForm"><div class="field"><label for="unavailableDate">Date</label><input id="unavailableDate" type="date" required></div><div class="field"><label for="unavailableNote">Note</label><input id="unavailableNote" maxlength="300" placeholder="Optional note"></div><button class="btn-outline" type="submit">Add unavailable date</button></form><div class="alert alert-error alert-hidden" id="unavailableError"></div><table style="margin-top:18px"><thead><tr><th>Date</th><th>Note</th><th></th></tr></thead><tbody id="unavailableBody"></tbody></table></div>
 
     <div class="panel">
@@ -135,6 +137,7 @@ async function init() {
   await loadSchedule();
   await loadWeeklyHours();
   await loadProfile();
+  await loadSecurity();
   await loadLeave();
   await loadUnavailableDates();
   await loadRequests();
@@ -166,6 +169,8 @@ async function loadSchedule() {
 async function loadWeeklyHours() { const summary = await (await apiFetch('/shifts/summary/mine-weekly')).json(); const warning = summary.overtimeHours > 0 ? ' <span class="tag tag-open">Overtime warning</span>' : ''; document.getElementById('weeklyHoursSummary').innerHTML = `<strong>${summary.hours} / ${summary.targetHours} hours</strong>${warning}<p class="helper-text">${summary.breakMinutes} break minutes deducted · Week ${summary.weekStart.slice(0, 10)} to ${summary.weekEnd.slice(0, 10)}</p>`; }
 
 async function loadProfile() { const { user } = await (await apiFetch('/users/me')).json(); document.getElementById('profileEmail').value = user.email; document.getElementById('profilePhone').value = user.phone || ''; document.getElementById('profileBusinessId').value = user.business_id || user.businessId || ''; }
+
+async function loadSecurity() { const [{ enabled }, { history }] = await Promise.all([(await apiFetch('/auth/2fa/status')).json(), (await apiFetch('/auth/login-history')).json()]); document.getElementById('setupTwoFactor').textContent = enabled ? 'Two-factor authentication enabled' : 'Set up two-factor authentication'; document.getElementById('setupTwoFactor').disabled = enabled; document.getElementById('loginHistoryBody').innerHTML = history.map((item) => `<tr><td>${formatDateTime(item.created_at)}</td><td>${item.success ? 'Success' : 'Failed'}</td><td>${item.method}</td><td>${item.ip_address || '—'}</td></tr>`).join('') || '<tr><td colspan="4">No login history yet.</td></tr>'; }
 
 async function loadStatus() {
   const res = await apiFetch('/shifts/mine');
@@ -282,6 +287,8 @@ document.getElementById('leaveForm').addEventListener('submit', async (event) =>
 document.getElementById('scheduleDateFilter').addEventListener('change', loadSchedule);
 document.getElementById('profileForm').addEventListener('submit', async (event) => { event.preventDefault(); const response = await apiFetch('/users/me', { method: 'PATCH', body: JSON.stringify({ phone: profilePhone.value, businessId: profileBusinessId.value }) }); if (response.ok) profileSuccess.classList.remove('alert-hidden'); });
 document.getElementById('unavailableForm').addEventListener('submit', async (event) => { event.preventDefault(); const response = await apiFetch('/shifts/unavailable-dates/mine', { method: 'POST', body: JSON.stringify({ date: unavailableDate.value, note: unavailableNote.value }) }); if (!response.ok) { const data = await response.json(); unavailableError.textContent = data.error; unavailableError.classList.remove('alert-hidden'); return; } event.target.reset(); unavailableError.classList.add('alert-hidden'); await loadUnavailableDates(); });
+document.getElementById('setupTwoFactor').addEventListener('click', async () => { const data = await (await apiFetch('/auth/2fa/setup', { method: 'POST' })).json(); document.getElementById('twoFactorSecret').textContent = data.secret; document.getElementById('twoFactorSetup').classList.remove('hidden'); });
+document.getElementById('enableTwoFactor').addEventListener('click', async () => { const response = await apiFetch('/auth/2fa/enable', { method: 'POST', body: JSON.stringify({ code: twoFactorCode.value }) }); const data = await response.json(); securitySuccess.textContent = data.message || data.error; securitySuccess.classList.remove('alert-hidden'); if (response.ok) { twoFactorSetup.classList.add('hidden'); await loadSecurity(); } });
 
 document.getElementById('requestForm').addEventListener('submit', async (event) => {
   event.preventDefault();

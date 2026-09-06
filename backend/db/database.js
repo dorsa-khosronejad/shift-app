@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS users (
   department TEXT DEFAULT 'Housekeeping',
   failed_login_attempts INTEGER NOT NULL DEFAULT 0,
   locked_until TEXT,
+  email_verified_at TEXT,
+  two_factor_secret TEXT,
+  two_factor_enabled INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -43,6 +46,46 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   token_hash TEXT NOT NULL UNIQUE,
   expires_at TEXT NOT NULL,
   used INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS two_factor_challenges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS login_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  email TEXT NOT NULL,
+  success INTEGER NOT NULL,
+  method TEXT NOT NULL DEFAULT 'password',
+  ip_address TEXT,
+  user_agent TEXT,
+  failure_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  target_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  details TEXT,
+  ip_address TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -172,6 +215,10 @@ CREATE INDEX IF NOT EXISTS idx_time_entries_user ON time_entries(user_id);
 CREATE INDEX IF NOT EXISTS idx_breaks_entry ON breaks(time_entry_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_email_verification_token ON email_verification_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_two_factor_challenge ON two_factor_challenges(token_hash);
+CREATE INDEX IF NOT EXISTS idx_login_history_user ON login_history(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
@@ -188,6 +235,15 @@ if (!userColumns.includes('business_id')) {
 }
 if (!userColumns.includes('phone')) {
   db.exec('ALTER TABLE users ADD COLUMN phone TEXT');
+}
+if (!userColumns.includes('email_verified_at')) {
+  db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
+}
+if (!userColumns.includes('two_factor_secret')) {
+  db.exec('ALTER TABLE users ADD COLUMN two_factor_secret TEXT');
+}
+if (!userColumns.includes('two_factor_enabled')) {
+  db.exec('ALTER TABLE users ADD COLUMN two_factor_enabled INTEGER NOT NULL DEFAULT 0');
 }
 
 // ---------- Seed demo data (only if empty) ----------
@@ -216,6 +272,8 @@ if (userCount === 0) {
   insertMany(demoUsers);
   console.log('Seeded demo users: admin@demo.local / manager@demo.local / employee@demo.local (see README for passwords)');
 }
+
+db.prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, datetime('now')) WHERE is_active = 1").run();
 
 db.prepare(`
   INSERT INTO leave_balances (user_id)

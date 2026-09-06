@@ -78,6 +78,12 @@
       </div>
     </div>
 
+    <div class="panel">
+      <h3>Admin audit log</h3>
+      <p>Recent account, role, login, and security events.</p>
+      <table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th><th>IP</th></tr></thead><tbody id="auditBody"></tbody></table>
+    </div>
+
   </div>
 </div>
 
@@ -89,6 +95,7 @@ async function init() {
   document.getElementById('userName').textContent = user.name;
   await mountNotifications(document.getElementById('notificationArea'));
   await loadUsers();
+  await loadAuditLog();
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -143,6 +150,8 @@ async function loadUsers() {
     });
   });
 }
+
+async function loadAuditLog() { const { entries } = await (await apiFetch('/users/audit-log')).json(); document.getElementById('auditBody').innerHTML = entries.map((entry) => `<tr><td>${formatDateTime(entry.created_at)}</td><td>${entry.actor_name || 'System'}</td><td>${entry.action}</td><td>${entry.target_name || '—'}</td><td>${entry.details || '—'}</td><td>${entry.ip_address || '—'}</td></tr>`).join('') || '<tr><td colspan="6">No audit events yet.</td></tr>'; }
 
 document.getElementById('createForm').addEventListener('submit', async (e) => {
   e.preventDefault();

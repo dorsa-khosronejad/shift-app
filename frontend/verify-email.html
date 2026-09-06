@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift &amp; Care · Verify email</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="login-form-side" style="min-height:100vh">
+  <main class="login-card">
+    <h1>Verify your email</h1>
+    <p id="status">Checking your verification link…</p>
+    <a class="btn-primary btn-block" href="index.html" style="display:block;text-align:center;text-decoration:none">Return to sign in</a>
+  </main>
+</div>
+<script src="js/api.js"></script>
+<script>
+(async () => {
+  const token = new URLSearchParams(window.location.search).get('token');
+  const status = document.getElementById('status');
+  if (!token) { status.textContent = 'This verification link is missing a token.'; return; }
+  const response = await fetch(`${API_BASE}/auth/verify-email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  const data = await response.json();
+  status.textContent = data.message || data.error || 'Unable to verify this email.';
+})();
+</script>
+</body>
+</html>

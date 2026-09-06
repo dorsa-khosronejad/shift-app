@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../db/database');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { recordAudit } = require('../utils/security');
 
 const router = express.Router();
 
@@ -38,6 +39,17 @@ router.get('/notifications', requireAuth, (req, res) => {
   res.json({ notifications, unreadCount: notifications.filter((notification) => !notification.read_at).length });
 });
 
+router.get('/audit-log', requireAuth, requireRole('admin'), (req, res) => {
+  const entries = db.prepare(`
+    SELECT al.*, actor.name AS actor_name, target.name AS target_name
+    FROM audit_log al
+    LEFT JOIN users actor ON actor.id = al.actor_user_id
+    LEFT JOIN users target ON target.id = al.target_user_id
+    ORDER BY al.created_at DESC LIMIT 300
+  `).all();
+  res.json({ entries });
+});
+
 router.patch('/notifications/:id/read', requireAuth, (req, res) => {
   db.prepare("UPDATE notifications SET read_at = datetime('now') WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
   res.json({ message: 'Notification marked as read' });
@@ -64,6 +76,7 @@ router.patch(
       req.body.is_active ? 1 : 0,
       req.params.id
     );
+    recordAudit({ actorUserId: req.user.id, action: req.body.is_active ? 'account-activated' : 'account-deactivated', targetUserId: Number(req.params.id), request: req });
     res.json({ message: 'Updated' });
   }
 );
@@ -83,6 +96,7 @@ router.patch(
     }
     const result = db.prepare('UPDATE users SET role = ? WHERE id = ?').run(req.body.role, req.params.id);
     if (!result.changes) return res.status(404).json({ error: 'Account not found' });
+    recordAudit({ actorUserId: req.user.id, action: 'role-changed', targetUserId: Number(req.params.id), details: { role: req.body.role }, request: req });
     res.json({ message: 'Role updated' });
   }
 );
@@ -148,6 +162,7 @@ router.patch(
       return res.status(400).json({ error: 'Invalid status' });
     }
     db.prepare('UPDATE wellbeing_reports SET status = ? WHERE id = ?').run(req.body.status, req.params.id);
+    recordAudit({ actorUserId: req.user.id, action: 'wellbeing-report-status-changed', details: { reportId: Number(req.params.id), status: req.body.status }, request: req });
     res.json({ message: 'Updated' });
   }
 );
