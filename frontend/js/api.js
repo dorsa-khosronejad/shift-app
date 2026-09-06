@@ -1,5 +1,5 @@
 // API_BASE points the deployed frontend at the Railway backend.
-const API_BASE = 'https://shift-app-production-acbf.up.railway.app/api';
+const API_BASE = 'https://shift-app-production-de38.up.railway.app/api';
 
 // The access token lives ONLY in memory (a JS variable), never in
 // localStorage. This means it disappears on page refresh — that's
