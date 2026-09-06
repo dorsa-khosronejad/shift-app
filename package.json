@@ -2,7 +2,7 @@
   "name": "shift-app",
   "private": true,
   "scripts": {
-    "install": "npm install --prefix backend",
+    "build": "npm install --prefix backend",
     "start": "node backend/server.js"
   },
   "engines": {
