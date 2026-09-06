@@ -1,0 +1,11 @@
+{
+  "name": "shift-app",
+  "private": true,
+  "scripts": {
+    "install": "npm install --prefix backend",
+    "start": "node backend/server.js"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
