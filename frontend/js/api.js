@@ -90,6 +90,16 @@ async function requireSession(allowedRoles = null) {
   return user;
 }
 
+async function mountNotifications(container) {
+  if (!container) return;
+  const response = await apiFetch('/users/notifications');
+  if (!response.ok) return;
+  const { notifications, unreadCount } = await response.json();
+  container.innerHTML = unreadCount
+    ? `<span class="notification-count" title="${notifications.filter((item) => !item.read_at).map((item) => item.title).join(', ')}">${unreadCount} new</span>`
+    : '';
+}
+
 function roleHome(role) {
   if (role === 'admin') return 'admin.html';
   if (role === 'manager') return 'manager.html';
