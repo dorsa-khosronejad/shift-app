@@ -26,6 +26,10 @@
 
     <div class="panel"><h3>Weekly hour targets</h3><p style="margin:0 0 12px">Targets power overtime warnings and payroll export.</p><div id="targetsBody"></div></div>
 
+    <div class="panel"><div class="panel-header"><div><h3>Weekly hours and overtime</h3><p style="margin:0">Breaks are deducted from paid hours.</p></div></div><div id="weeklySummaryBody"></div></div>
+
+    <div class="panel"><h3>Payroll export</h3><p style="margin:0 0 12px">Download paid hours, breaks, overtime, notes, and business IDs as CSV.</p><div class="export-row"><div class="field"><label for="exportFrom">From</label><input id="exportFrom" type="date"></div><div class="field"><label for="exportTo">To</label><input id="exportTo" type="date"></div><button class="btn-primary" id="exportButton" type="button">Download CSV</button></div></div>
+
     <div class="panel">
       <div class="panel-header"><div><h3>Weekly calendar</h3><p style="margin:0">Drag a scheduled shift to another day.</p></div><button class="btn-outline" id="previousWeek">Previous week</button><button class="btn-outline" id="nextWeek">Next week</button></div>
       <div id="calendarGrid" class="calendar-grid"></div>
@@ -121,6 +125,7 @@ async function init() {
   await loadFeedback();
   await loadCalendar();
   await loadTargets();
+  await loadWeeklySummary();
 }
 
 async function loadTargets() {
@@ -128,6 +133,8 @@ async function loadTargets() {
   document.getElementById('targetsBody').innerHTML = targets.map((target) => `<div class="target-row"><span>${target.name}</span><input type="number" min="0" max="168" step="0.5" value="${target.target_hours}" data-target-user="${target.id}"><span>hours</span></div>`).join('');
   document.querySelectorAll('[data-target-user]').forEach((input) => input.addEventListener('change', async () => { await apiFetch(`/shifts/targets/${input.dataset.targetUser}`, { method: 'PUT', body: JSON.stringify({ targetHours: input.value }) }); }));
 }
+
+async function loadWeeklySummary() { const { summary } = await (await apiFetch('/shifts/summary/weekly')).json(); document.getElementById('weeklySummaryBody').innerHTML = summary.map((item) => `<div class="target-row"><span>${item.name}</span><span>${item.hours} / ${item.targetHours} hrs</span><span>${item.overtimeHours > 0 ? '<span class="tag tag-open">Overtime</span>' : 'On target'}</span></div>`).join('') || '<div class="empty-state">No hours logged this week.</div>'; }
 
 let calendarOffset = 0;
 function weekStart(offset) { const date = new Date(); date.setHours(0, 0, 0, 0); const day = date.getDay() || 7; date.setDate(date.getDate() - day + 1 + offset * 7); return date; }
@@ -143,6 +150,8 @@ previousWeek.addEventListener('click', async () => { calendarOffset -= 1; await 
 nextWeek.addEventListener('click', async () => { calendarOffset += 1; await loadCalendar(); });
 
 openShiftForm.addEventListener('submit', async (event) => { event.preventDefault(); const response = await apiFetch('/shifts/open-shifts', { method: 'POST', body: JSON.stringify({ shiftDate: openShiftDate.value, startTime: openShiftStart.value, endTime: openShiftEnd.value, note: openShiftNote.value }) }); if (response.ok) event.target.reset(); });
+
+document.getElementById('exportButton').addEventListener('click', async () => { const params = new URLSearchParams(); if (exportFrom.value) params.set('from', exportFrom.value); if (exportTo.value) params.set('to', exportTo.value); const response = await apiFetch(`/shifts/export?${params}`); if (!response.ok) return; const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'shift-payroll-export.csv'; link.click(); URL.revokeObjectURL(link.href); });
 
 async function loadDashboard() {
   const response = await apiFetch('/shifts/dashboard');

@@ -1,39 +1,25 @@
-// API_BASE: deployed Railway backend.
-const API_BASE = 'https://shift-app-production-acbf.up.railway.app/api';
+// API_BASE: change this if the backend runs somewhere other than localhost:4000
+const API_BASE = 'http://192.168.0.62:4000/api';
 
-// Keep the short-lived access token in the current tab so login survives the
-// redirect to the role page. The refresh token remains httpOnly and cookie-based.
-let accessToken = sessionStorage.getItem('shiftAccessToken');
+// The access token lives ONLY in memory (a JS variable), never in
+// localStorage. This means it disappears on page refresh — that's
+// intentional and handled by silently calling /auth/refresh on load,
+// using the httpOnly refresh cookie the browser holds for us.
+let accessToken = null;
 let currentUser = null;
 
 function setSession(token, user) {
   accessToken = token;
   currentUser = user;
-  sessionStorage.setItem('shiftAccessToken', token);
 }
 
 function clearSession() {
   accessToken = null;
   currentUser = null;
-  sessionStorage.removeItem('shiftAccessToken');
 }
 
 function getCurrentUser() {
   return currentUser;
-}
-
-async function mountNotifications(container) {
-  if (!container) return;
-  const response = await apiFetch('/users/notifications');
-  if (!response.ok) return;
-  const data = await response.json();
-  container.innerHTML = `<button type="button" class="btn-outline" id="notificationButton">Alerts${data.unreadCount ? ` (${data.unreadCount})` : ''}</button><div id="notificationPanel" class="hidden" style="position:absolute;right:20px;top:58px;z-index:5;background:#fff;border:1px solid #ddd;padding:12px;max-width:360px;box-shadow:0 8px 24px #0002"><strong>Notifications</strong>${data.notifications.length ? data.notifications.map((notification) => `<p data-notification-id="${notification.id}" style="margin:10px 0;${notification.read_at ? '' : 'font-weight:700'}">${notification.title}<br><small>${notification.message}</small></p>`).join('') : '<p>No notifications.</p>'}</div>`;
-  const panel = container.querySelector('#notificationPanel');
-  container.querySelector('#notificationButton').addEventListener('click', () => panel.classList.toggle('hidden'));
-  panel.querySelectorAll('[data-notification-id]').forEach((item) => item.addEventListener('click', async () => {
-    await apiFetch(`/users/notifications/${item.dataset.notificationId}/read`, { method: 'PATCH' });
-    item.style.fontWeight = '400';
-  }));
 }
 
 // Wraps fetch: attaches the bearer token, and if the server says the token

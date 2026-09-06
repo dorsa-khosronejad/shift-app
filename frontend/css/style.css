@@ -217,6 +217,9 @@ tr:last-child td { border-bottom: none; }
 .availability-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
 .availability-row label { margin: 0; }
 .target-row { display: grid; grid-template-columns: 1fr 110px 60px; gap: 10px; align-items: center; margin-bottom: 8px; }
+.export-row { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.export-row .field { flex: 1 1 180px; margin-bottom: 0; }
+.export-row button { flex: 0 0 auto; }
 .availability-calendar-header { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
 .availability-calendar-header h4 { margin: 0; font-family: var(--font-display); }
 .year-calendar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
