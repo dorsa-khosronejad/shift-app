@@ -5,11 +5,25 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+router.get('/me', requireAuth, (req, res) => {
+  const user = db.prepare('SELECT id, name, business_id AS businessId, email, phone, role, department FROM users WHERE id = ?').get(req.user.id);
+  res.json({ user });
+});
+
+router.patch('/me', requireAuth, [
+  body('phone').optional().trim().isLength({ max: 40 }),
+  body('businessId').optional().trim().isLength({ max: 60 }),
+], (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Profile details are too long' });
+  db.prepare('UPDATE users SET phone = ?, business_id = ? WHERE id = ?').run(req.body.phone?.trim() || null, req.body.businessId?.trim() || null, req.user.id);
+  res.json({ message: 'Profile updated' });
+});
+
 // ---------- GET /api/users ----------
 // Admin only: list all staff accounts.
 router.get('/', requireAuth, requireRole('admin'), (req, res) => {
   const users = db
-    .prepare('SELECT id, name, business_id, email, role, department, is_active, created_at FROM users ORDER BY created_at DESC')
+    .prepare('SELECT id, name, business_id, email, phone, role, department, is_active, created_at FROM users ORDER BY created_at DESC')
     .all();
   res.json({ users });
 });

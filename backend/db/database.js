@@ -1,8 +1,10 @@
 const Database = require('better-sqlite3');
+const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcrypt');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'shifts.db');
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
@@ -121,6 +123,21 @@ CREATE TABLE IF NOT EXISTS employee_availability (
   UNIQUE(employee_id, weekday)
 );
 
+CREATE TABLE IF NOT EXISTS employee_unavailable_dates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  unavailable_date TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(employee_id, unavailable_date)
+);
+
+CREATE TABLE IF NOT EXISTS leave_balances (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  allowance_days REAL NOT NULL DEFAULT 25 CHECK(allowance_days >= 0),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sick_leave_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -160,6 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
 CREATE INDEX IF NOT EXISTS idx_open_shifts_date ON open_shifts(shift_date);
 CREATE INDEX IF NOT EXISTS idx_availability_employee ON employee_availability(employee_id);
+CREATE INDEX IF NOT EXISTS idx_unavailable_dates_employee ON employee_unavailable_dates(employee_id, unavailable_date);
 CREATE INDEX IF NOT EXISTS idx_sick_leave_status ON sick_leave_requests(status);
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON shift_feedback(created_at);
 `);
@@ -198,5 +216,11 @@ if (userCount === 0) {
   insertMany(demoUsers);
   console.log('Seeded demo users: admin@demo.local / manager@demo.local / employee@demo.local (see README for passwords)');
 }
+
+db.prepare(`
+  INSERT INTO leave_balances (user_id)
+  SELECT id FROM users WHERE role = 'employee'
+  ON CONFLICT(user_id) DO NOTHING
+`).run();
 
 module.exports = db;

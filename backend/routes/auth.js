@@ -114,7 +114,7 @@ router.post(
     res.cookie('refreshToken', raw, cookieOptions);
     res.json({
       accessToken,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, department: user.department },
+      user: { id: user.id, name: user.name, businessId: user.business_id, email: user.email, phone: user.phone, role: user.role, department: user.department },
     });
   }
 );
@@ -170,7 +170,7 @@ router.post('/logout', (req, res) => {
 
 // ---------- GET /api/auth/me ----------
 router.get('/me', requireAuth, (req, res) => {
-  const user = db.prepare('SELECT id, name, email, role, department FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, name, business_id AS businessId, email, phone, role, department FROM users WHERE id = ?').get(req.user.id);
   res.json({ user });
 });
 

@@ -42,6 +42,14 @@ function parseManualDate(value) {
   return Number.isNaN(date.getTime()) ? null : toSqliteUTC(date);
 }
 
+function isIsoDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime());
+}
+
+function dateOnlyDays(startDate, endDate) {
+  return Math.floor((new Date(`${endDate}T00:00:00Z`) - new Date(`${startDate}T00:00:00Z`)) / 86400000) + 1;
+}
+
 function hasScheduleConflict(employeeId, shiftDate, startTime, endTime, excludeId = null) {
   const query = `SELECT id FROM schedules WHERE employee_id = ? AND shift_date = ?
     AND start_time < ? AND end_time > ?${excludeId ? ' AND id != ?' : ''}`;
@@ -177,9 +185,10 @@ router.patch('/requests/:id', requireAuth, requireRole('manager', 'admin'), [
 
 // ---------- Schedules ----------
 router.get('/schedule/mine', requireAuth, (req, res) => {
+  const from = isIsoDate(req.query.from) ? req.query.from : new Date().toISOString().slice(0, 10);
   const schedules = db.prepare(
-    'SELECT * FROM schedules WHERE employee_id = ? ORDER BY shift_date, start_time LIMIT 200'
-  ).all(req.user.id);
+    'SELECT * FROM schedules WHERE employee_id = ? AND shift_date >= ? ORDER BY shift_date, start_time LIMIT 200'
+  ).all(req.user.id, from);
   res.json({ schedules });
 });
 router.get('/schedule/team', requireAuth, (req, res) => {
@@ -270,22 +279,26 @@ router.post('/open-shifts/:id/claim', requireAuth, requireRole('employee'), (req
   res.json({ message: 'Open shift claimed' });
 });
 
-router.get('/availability/mine', requireAuth, (req, res) => {
-  const availability = db.prepare('SELECT weekday, start_time, end_time FROM employee_availability WHERE employee_id = ? ORDER BY weekday').all(req.user.id);
-  res.json({ availability });
+router.get('/unavailable-dates/mine', requireAuth, (req, res) => {
+  const dates = db.prepare('SELECT id, unavailable_date, note FROM employee_unavailable_dates WHERE employee_id = ? AND unavailable_date >= date(\'now\') ORDER BY unavailable_date LIMIT 100').all(req.user.id);
+  res.json({ dates });
 });
 
-router.put('/availability/mine', requireAuth, [
-  body('availability').isArray({ max: 7 }),
-], (req, res) => {
-  if (!validationResult(req).isEmpty() || req.body.availability.some((item) => !Number.isInteger(item.weekday) || item.weekday < 0 || item.weekday > 6 || !/^\d{2}:\d{2}$/.test(item.startTime) || !/^\d{2}:\d{2}$/.test(item.endTime) || item.endTime <= item.startTime)) return res.status(400).json({ error: 'Enter valid availability windows' });
-  const update = db.transaction(() => {
-    db.prepare('DELETE FROM employee_availability WHERE employee_id = ?').run(req.user.id);
-    const insert = db.prepare('INSERT INTO employee_availability (employee_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)');
-    for (const item of req.body.availability) insert.run(req.user.id, item.weekday, item.startTime, item.endTime);
-  });
-  update();
-  res.json({ message: 'Availability saved' });
+router.post('/unavailable-dates/mine', requireAuth, [body('date').custom(isIsoDate), body('note').optional().trim().isLength({ max: 300 })], (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Choose a valid unavailable date' });
+  try {
+    const result = db.prepare('INSERT INTO employee_unavailable_dates (employee_id, unavailable_date, note) VALUES (?, ?, ?)').run(req.user.id, req.body.date, req.body.note?.trim() || null);
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ error: 'That date is already marked unavailable' });
+    throw error;
+  }
+});
+
+router.delete('/unavailable-dates/mine/:id', requireAuth, (req, res) => {
+  const result = db.prepare('DELETE FROM employee_unavailable_dates WHERE id = ? AND employee_id = ?').run(req.params.id, req.user.id);
+  if (!result.changes) return res.status(404).json({ error: 'Unavailable date not found' });
+  res.json({ message: 'Unavailable date removed' });
 });
 
 router.delete('/schedule/:id', requireAuth, requireRole('manager', 'admin'), (req, res) => {
@@ -311,6 +324,13 @@ router.post('/sick-leave', requireAuth, [
 router.get('/sick-leave/mine', requireAuth, (req, res) => {
   const requests = db.prepare('SELECT * FROM sick_leave_requests WHERE user_id = ? ORDER BY start_date DESC LIMIT 100').all(req.user.id);
   res.json({ requests });
+});
+
+router.get('/sick-leave/balance/mine', requireAuth, (req, res) => {
+  const allowance = db.prepare('SELECT COALESCE(allowance_days, 25) AS allowance_days FROM leave_balances WHERE user_id = ?').get(req.user.id)?.allowance_days || 25;
+  const approved = db.prepare("SELECT start_date, end_date FROM sick_leave_requests WHERE user_id = ? AND status = 'approved'").all(req.user.id);
+  const usedDays = approved.reduce((total, request) => total + dateOnlyDays(request.start_date, request.end_date), 0);
+  res.json({ allowanceDays: allowance, usedDays, remainingDays: Math.max(0, allowance - usedDays) });
 });
 
 router.get('/sick-leave', requireAuth, requireRole('manager', 'admin'), (req, res) => {
@@ -379,6 +399,15 @@ router.get('/mine', requireAuth, (req, res) => {
   if (openEntry && new Date() - new Date(openEntry.clock_in.replace(' ', 'T') + 'Z') > 12 * 60 * 60 * 1000) {
     const existingReminder = db.prepare("SELECT id FROM notifications WHERE user_id = ? AND type = 'missing-clock-out' AND created_at >= date('now')").get(req.user.id);
     if (!existingReminder) notifyUser(req.user.id, { type: 'missing-clock-out', title: 'Missing clock-out', message: 'You have an open shift older than 12 hours. Please clock out or submit a correction.' });
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const scheduledToday = db.prepare("SELECT id, shift_date, start_time FROM schedules WHERE employee_id = ? AND shift_date = ? AND datetime(shift_date || ' ' || start_time) < datetime('now', '-30 minutes')").all(req.user.id, today);
+  for (const shift of scheduledToday) {
+    const punched = db.prepare("SELECT id FROM time_entries WHERE user_id = ? AND date(clock_in) = ?").get(req.user.id, shift.shift_date);
+    if (!punched) {
+      const existingReminder = db.prepare("SELECT id FROM notifications WHERE user_id = ? AND type = 'missing-clock-in' AND message LIKE ? AND created_at >= date('now')").get(req.user.id, `%${shift.shift_date}%`);
+      if (!existingReminder) notifyUser(req.user.id, { type: 'missing-clock-in', title: 'Missing clock-in', message: `You were scheduled on ${shift.shift_date} at ${shift.start_time} but have not clocked in.` });
+    }
   }
   res.json({ entries, currentlyClockedIn: !!openEntry });
 });
@@ -471,7 +500,7 @@ router.get('/summary/weekly', requireAuth, requireRole('manager', 'admin'), (req
 
   const rows = db
     .prepare(
-      `SELECT te.id, te.user_id, u.name AS user_name, u.department, te.clock_in, te.clock_out
+      `SELECT te.id, te.user_id, u.name AS user_name, u.business_id, u.department, te.clock_in, te.clock_out, te.note
        FROM time_entries te
        JOIN users u ON u.id = te.user_id
        WHERE te.clock_in >= ? AND te.clock_in < ?`
@@ -505,17 +534,24 @@ router.get('/summary/weekly', requireAuth, requireRole('manager', 'admin'), (req
 router.get('/summary/mine-weekly', requireAuth, (req, res) => {
   const { start, end } = getWeekRange(0);
   const rows = db
-    .prepare('SELECT clock_in, clock_out FROM time_entries WHERE user_id = ? AND clock_in >= ? AND clock_in < ?')
+    .prepare('SELECT id, clock_in, clock_out FROM time_entries WHERE user_id = ? AND clock_in >= ? AND clock_in < ?')
     .all(req.user.id, start, end);
 
   let minutes = 0;
+  let breakMinutes = 0;
   let openShift = false;
   for (const row of rows) {
-    if (row.clock_out) minutes += minutesBetween(row.clock_in, row.clock_out);
+    if (row.clock_out) {
+      const entryBreakMinutes = breakMinutesForEntry(row.id);
+      breakMinutes += entryBreakMinutes;
+      minutes += Math.max(0, minutesBetween(row.clock_in, row.clock_out) - entryBreakMinutes);
+    }
     else openShift = true;
   }
 
-  res.json({ weekStart: start, weekEnd: end, hours: Math.round((minutes / 60) * 100) / 100, openShift });
+  const targetHours = db.prepare('SELECT COALESCE(target_hours, 40) AS target_hours FROM weekly_targets WHERE user_id = ?').get(req.user.id)?.target_hours || 40;
+  const hours = Math.round((minutes / 60) * 100) / 100;
+  res.json({ weekStart: start, weekEnd: end, hours, breakMinutes, targetHours, overtimeHours: Math.max(0, Math.round((hours - targetHours) * 100) / 100), openShift });
 });
 
 // ---------- GET /api/shifts/export ----------
@@ -537,7 +573,7 @@ router.get('/export', requireAuth, requireRole('manager', 'admin'), (req, res) =
 
   const escapeCsv = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
 
-  const header = ['Staff', 'Department', 'Clock in (UTC)', 'Clock out (UTC)', 'Break minutes', 'Hours', 'Overtime hours'];
+  const header = ['Staff', 'Business ID', 'Department', 'Clock in (UTC)', 'Clock out (UTC)', 'Break minutes', 'Paid hours', 'Overtime hours', 'Shift note'];
   const lines = [header.map(escapeCsv).join(',')];
 
   for (const r of rows) {
@@ -545,7 +581,7 @@ router.get('/export', requireAuth, requireRole('manager', 'admin'), (req, res) =
     const hours = r.clock_out ? ((minutesBetween(r.clock_in, r.clock_out) - breakMinutes) / 60).toFixed(2) : 'in progress';
     const target = db.prepare('SELECT COALESCE(target_hours, 40) AS target_hours FROM weekly_targets WHERE user_id = ?').get(r.user_id)?.target_hours || 40;
     const overtime = hours === 'in progress' ? 'in progress' : Math.max(0, Number(hours) - target).toFixed(2);
-    lines.push([r.user_name, r.department, r.clock_in, r.clock_out || '', breakMinutes, hours, overtime].map(escapeCsv).join(','));
+    lines.push([r.user_name, r.business_id, r.department, r.clock_in, r.clock_out || '', breakMinutes, hours, overtime, r.note].map(escapeCsv).join(','));
   }
 
   const csv = lines.join('\r\n');

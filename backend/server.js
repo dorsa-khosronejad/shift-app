@@ -1,5 +1,4 @@
 require('dotenv').config();
-// Force a fresh Railway rebuild with the correct backend root directory.
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -34,8 +33,8 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-const HOST = '0.0.0.0';
-
-app.listen(PORT, HOST, () => {
-  console.log(`Shift tracker API running on http://${HOST}:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Shift tracker API running on http://0.0.0.0:${PORT}`);
+  console.log(`  - Local: http://localhost:${PORT}`);
+  console.log(`  - Network: http://192.168.0.62:${PORT}`);
 });
