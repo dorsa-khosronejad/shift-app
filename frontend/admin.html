@@ -27,9 +27,11 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="staff">Staff accounts</button>
       <button class="tab-btn" data-tab="new">Add staff member</button>
+      <button class="tab-btn" data-tab="invites">Invite links</button>
+      <button class="tab-btn" data-tab="audit">Audit log</button>
     </div>
 
-    <div id="tab-staff">
+    <div id="tab-staff" class="tab-panel">
       <div class="panel">
         <h3>All accounts</h3>
         <table>
@@ -39,7 +41,7 @@
       </div>
     </div>
 
-    <div id="tab-new" class="hidden">
+    <div id="tab-new" class="tab-panel hidden">
       <div class="panel" style="max-width:440px">
         <h3>Add a staff member</h3>
         <p>Creates a login for them directly — no self sign-up, so the roster stays controlled.</p>
@@ -78,10 +80,43 @@
       </div>
     </div>
 
-    <div class="panel">
-      <h3>Admin audit log</h3>
-      <p>Recent account, role, login, and security events.</p>
-      <table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th><th>IP</th></tr></thead><tbody id="auditBody"></tbody></table>
+    <div id="tab-invites" class="tab-panel hidden">
+      <div class="panel" style="max-width:440px">
+        <h3>Send an invite link</h3>
+        <p>Generate a one-time link for a new user to set their own password and details. No public sign-up form is exposed.</p>
+        <div class="alert alert-error alert-hidden" id="inviteError"></div>
+        <div class="alert alert-success alert-hidden" id="inviteSuccess"></div>
+        <form id="inviteForm">
+          <div class="field"><label for="inviteEmail">Work email</label><input type="email" id="inviteEmail" required></div>
+          <div class="field"><label for="inviteDepartment">Department</label><input type="text" id="inviteDepartment" value="Housekeeping"></div>
+          <div class="field">
+            <label for="inviteRole">Role</label>
+            <select id="inviteRole">
+              <option value="employee">Employee</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-primary btn-block">Generate invite link</button>
+        </form>
+        <div id="inviteLinkBox" class="hidden" style="margin-top:16px">
+          <label for="inviteLinkOutput">Share this link (expires in 7 days)</label>
+          <input type="text" id="inviteLinkOutput" readonly>
+          <button type="button" class="btn-outline" id="copyInviteLink" style="margin-top:8px">Copy link</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Sent invites</h3>
+        <table><thead><tr><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th>Expires</th></tr></thead><tbody id="invitesBody"></tbody></table>
+      </div>
+    </div>
+
+    <div id="tab-audit" class="tab-panel hidden">
+      <div class="panel">
+        <h3>Admin audit log</h3>
+        <p>Recent account, role, login, and security events.</p>
+        <table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th><th>IP</th></tr></thead><tbody id="auditBody"></tbody></table>
+      </div>
     </div>
 
   </div>
@@ -96,16 +131,60 @@ async function init() {
   await mountNotifications(document.getElementById('notificationArea'));
   await loadUsers();
   await loadAuditLog();
+  await loadInvites();
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.add('hidden'));
     btn.classList.add('active');
-    document.getElementById('tab-staff').classList.add('hidden');
-    document.getElementById('tab-new').classList.add('hidden');
     document.getElementById(`tab-${btn.dataset.tab}`).classList.remove('hidden');
   });
+});
+
+async function loadInvites() {
+  const { invites } = await (await apiFetch('/auth/invites')).json();
+  document.getElementById('invitesBody').innerHTML = invites.map((invite) => {
+    const expired = new Date(invite.expires_at) < new Date();
+    const status = invite.used_at ? `Used by ${invite.used_by_name || 'a new account'}` : expired ? 'Expired' : 'Pending';
+    return `<tr><td>${invite.email}</td><td style="text-transform:capitalize">${invite.role}</td><td>${invite.department}</td><td>${status}</td><td>${formatDateTime(invite.expires_at)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5">No invites sent yet.</td></tr>';
+}
+
+document.getElementById('inviteForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const errorBox = document.getElementById('inviteError');
+  const successBox = document.getElementById('inviteSuccess');
+  errorBox.classList.add('alert-hidden');
+  successBox.classList.add('alert-hidden');
+  const response = await apiFetch('/auth/invites', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: document.getElementById('inviteEmail').value,
+      department: document.getElementById('inviteDepartment').value,
+      role: document.getElementById('inviteRole').value,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    errorBox.textContent = data.error || 'Could not create invite.';
+    errorBox.classList.remove('alert-hidden');
+    return;
+  }
+  document.getElementById('inviteLinkOutput').value = data.link;
+  document.getElementById('inviteLinkBox').classList.remove('hidden');
+  successBox.textContent = 'Invite link created. Share it with the new user.';
+  successBox.classList.remove('alert-hidden');
+  document.getElementById('inviteForm').reset();
+  document.getElementById('inviteDepartment').value = 'Housekeeping';
+  await loadInvites();
+});
+
+document.getElementById('copyInviteLink').addEventListener('click', async () => {
+  const input = document.getElementById('inviteLinkOutput');
+  input.select();
+  await navigator.clipboard.writeText(input.value).catch(() => {});
 });
 
 async function loadUsers() {

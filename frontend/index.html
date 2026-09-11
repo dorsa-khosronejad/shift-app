@@ -16,10 +16,6 @@
 
   <div class="login-form-side">
     <div class="login-card">
-      <div class="tabs">
-        <button class="tab-btn active" type="button" id="signInTab">Sign in</button>
-        <button class="tab-btn" type="button" id="signUpTab">Create account</button>
-      </div>
       <h1 id="formTitle">Sign in</h1>
       <p id="formSubtitle">Use your work email and password.</p>
 
@@ -40,15 +36,6 @@
         </div>
         <button type="submit" class="btn-primary btn-block" id="loginBtn">Sign in</button>
       </form>
-      <form id="signupForm" class="hidden">
-        <div class="field"><label for="firstName">First name</label><input id="firstName" required autocomplete="given-name"></div>
-        <div class="field"><label for="familyName">Family name</label><input id="familyName" required autocomplete="family-name"></div>
-        <div class="field"><label for="businessId">Business ID</label><input id="businessId" required autocomplete="organization-title"></div>
-        <div class="field"><label for="signupEmail">Work email</label><input type="email" id="signupEmail" required autocomplete="email"></div>
-        <div class="field"><label for="signupPhone">Phone number</label><input type="tel" id="signupPhone" required autocomplete="tel"></div>
-        <div class="field"><label for="signupPassword">Password</label><input type="password" id="signupPassword" required minlength="8" autocomplete="new-password"></div>
-        <button type="submit" class="btn-primary btn-block" id="signupBtn">Create account</button>
-      </form>
       <button type="button" class="btn-outline btn-block" id="forgotPasswordBtn">Forgot password?</button>
       <form id="forgotPasswordForm" class="hidden">
         <p>Verify your email and phone number. We will email you a secure reset link.</p>
@@ -61,6 +48,15 @@
         <p>Choose a new password for your account.</p>
         <div class="field"><label for="resetPassword">New password</label><input type="password" id="resetPassword" required minlength="8" autocomplete="new-password"></div>
         <button type="submit" class="btn-primary btn-block">Set new password</button>
+      </form>
+      <form id="inviteForm" class="hidden">
+        <p>Complete the account your administrator created for you.</p>
+        <div class="field"><label for="firstName">First name</label><input id="firstName" required autocomplete="given-name"></div>
+        <div class="field"><label for="familyName">Family name</label><input id="familyName" required autocomplete="family-name"></div>
+        <div class="field"><label for="businessId">Business ID</label><input id="businessId" required autocomplete="organization-title"></div>
+        <div class="field"><label for="signupPhone">Phone number</label><input type="tel" id="signupPhone" required autocomplete="tel"></div>
+        <div class="field"><label for="signupPassword">Password</label><input type="password" id="signupPassword" required minlength="8" autocomplete="new-password"></div>
+        <button type="submit" class="btn-primary btn-block" id="inviteSubmitBtn">Create account</button>
       </form>
     </div>
   </div>
@@ -80,37 +76,11 @@ const errorBox = document.getElementById('loginError');
 const btn = document.getElementById('loginBtn');
 let twoFactorChallenge = null;
 const loginForm = document.getElementById('loginForm');
-const signupForm = document.getElementById('signupForm');
-const signInTab = document.getElementById('signInTab');
-const signUpTab = document.getElementById('signUpTab');
+const inviteForm = document.getElementById('inviteForm');
 const forgotPasswordBtn = document.getElementById('forgotPasswordBtn');
 const forgotPasswordForm = document.getElementById('forgotPasswordForm');
 const resetForm = document.getElementById('resetForm');
 
-function showLogin() {
-  signInTab.classList.add('active');
-  signUpTab.classList.remove('active');
-  loginForm.classList.remove('hidden');
-  signupForm.classList.add('hidden');
-  document.getElementById('formTitle').textContent = 'Sign in';
-  document.getElementById('formSubtitle').textContent = 'Use your work email and password.';
-  forgotPasswordBtn.classList.remove('hidden');
-  forgotPasswordForm.classList.add('hidden');
-}
-
-function showSignup() {
-  signUpTab.classList.add('active');
-  signInTab.classList.remove('active');
-  loginForm.classList.add('hidden');
-  signupForm.classList.remove('hidden');
-  document.getElementById('formTitle').textContent = 'Create account';
-  document.getElementById('formSubtitle').textContent = 'Use your business details. An administrator will activate your account.';
-  forgotPasswordBtn.classList.add('hidden');
-  forgotPasswordForm.classList.add('hidden');
-}
-
-signInTab.addEventListener('click', showLogin);
-signUpTab.addEventListener('click', showSignup);
 forgotPasswordBtn.addEventListener('click', () => forgotPasswordForm.classList.toggle('hidden'));
 
 form.addEventListener('submit', async (e) => {
@@ -159,33 +129,6 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-signupForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const successBox = document.getElementById('signupSuccess');
-  successBox.classList.add('alert-hidden');
-  const res = await fetch(`${API_BASE}/auth/signup`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      firstName: document.getElementById('firstName').value,
-      familyName: document.getElementById('familyName').value,
-      businessId: document.getElementById('businessId').value,
-      email: document.getElementById('signupEmail').value,
-      phone: document.getElementById('signupPhone').value,
-      password: document.getElementById('signupPassword').value,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    errorBox.textContent = data.error || 'Could not create account.';
-    errorBox.classList.remove('alert-hidden');
-    return;
-  }
-  signupForm.reset();
-  successBox.textContent = data.message;
-  successBox.classList.remove('alert-hidden');
-});
-
 forgotPasswordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const res = await fetch(`${API_BASE}/auth/forgot-password`, {
@@ -203,7 +146,6 @@ forgotPasswordForm.addEventListener('submit', async (event) => {
 const resetToken = new URLSearchParams(window.location.search).get('reset');
 if (resetToken) {
   loginForm.classList.add('hidden');
-  signupForm.classList.add('hidden');
   forgotPasswordBtn.classList.add('hidden');
   resetForm.classList.remove('hidden');
   document.getElementById('formTitle').textContent = 'Set new password';
@@ -219,8 +161,46 @@ resetForm.addEventListener('submit', async (event) => {
   if (response.ok) resetForm.classList.add('hidden');
 });
 
+const inviteToken = new URLSearchParams(window.location.search).get('invite');
+if (inviteToken) {
+  loginForm.classList.add('hidden');
+  forgotPasswordBtn.classList.add('hidden');
+  inviteForm.classList.remove('hidden');
+  document.getElementById('formTitle').textContent = 'Create account';
+  document.getElementById('formSubtitle').textContent = 'This invite link was sent by your administrator.';
+}
+
+inviteForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const successBox = document.getElementById('signupSuccess');
+  successBox.classList.add('alert-hidden');
+  errorBox.classList.add('alert-hidden');
+  const res = await fetch(`${API_BASE}/auth/invites/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token: inviteToken,
+      firstName: document.getElementById('firstName').value,
+      familyName: document.getElementById('familyName').value,
+      businessId: document.getElementById('businessId').value,
+      phone: document.getElementById('signupPhone').value,
+      password: document.getElementById('signupPassword').value,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    errorBox.textContent = data.error || 'Could not create account.';
+    errorBox.classList.remove('alert-hidden');
+    return;
+  }
+  inviteForm.classList.add('hidden');
+  successBox.textContent = `${data.message} `;
+  successBox.classList.remove('alert-hidden');
+});
+
 // If already logged in (valid refresh cookie), skip straight past login
 (async () => {
+  if (resetToken || inviteToken) return;
   const refreshed = await tryRefresh();
   if (refreshed) {
     const meRes = await apiFetch('/auth/me');

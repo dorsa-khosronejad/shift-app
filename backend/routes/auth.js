@@ -294,15 +294,54 @@ router.post(
   }
 );
 
-// ---------- POST /api/auth/signup ----------
-// Public signup creates an inactive employee account for admin approval.
+// ---------- POST /api/auth/invites ----------
+// Admin-only: generate a one-time signup link for a specific role/department.
+// Replaces public self-signup so the roster stays admin-controlled.
 router.post(
-  '/signup',
+  '/invites',
+  requireAuth,
+  requireRole('admin'),
   [
+    body('email').isEmail().normalizeEmail(),
+    body('role').isIn(['employee', 'manager', 'admin']),
+    body('department').optional().trim().isLength({ max: 80 }),
+  ],
+  (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid email and role' });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const result = db.prepare(
+      'INSERT INTO invites (token_hash, email, role, department, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(hashToken(rawToken), req.body.email, req.body.role, req.body.department?.trim() || 'Housekeeping', req.user.id, expiresAt);
+
+    recordAudit({ actorUserId: req.user.id, action: 'invite-created', details: { email: req.body.email, role: req.body.role }, request: req });
+
+    const base = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    res.status(201).json({ id: result.lastInsertRowid, link: `${base}/index.html?invite=${rawToken}`, expiresAt });
+  }
+);
+
+// ---------- GET /api/auth/invites ----------
+router.get('/invites', requireAuth, requireRole('admin'), (req, res) => {
+  const invites = db.prepare(`
+    SELECT i.id, i.email, i.role, i.department, i.expires_at, i.used_at, i.created_at, u.name AS used_by_name
+    FROM invites i LEFT JOIN users u ON u.id = i.used_by
+    ORDER BY i.created_at DESC LIMIT 100
+  `).all();
+  res.json({ invites });
+});
+
+// ---------- POST /api/auth/invites/accept ----------
+// Public: completes an admin-issued invite into an active account.
+router.post(
+  '/invites/accept',
+  [
+    body('token').isHexadecimal().isLength({ min: 64, max: 64 }),
     body('firstName').trim().isLength({ min: 2, max: 80 }),
     body('familyName').trim().isLength({ min: 2, max: 80 }),
     body('businessId').trim().isLength({ min: 2, max: 80 }),
-    body('email').isEmail().normalizeEmail(),
     body('phone').trim().isMobilePhone('any'),
     body('password')
       .isLength({ min: 8 })
@@ -314,25 +353,28 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter all details and use a password with 8+ characters and a number' });
 
-    const { firstName, familyName, businessId, email, phone, password } = req.body;
-    const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-    const existingBusinessId = db.prepare('SELECT id FROM users WHERE business_id = ?').get(businessId.trim());
-    if (existingEmail || existingBusinessId) return res.status(409).json({ error: 'That email or business ID is already registered' });
-
-    const hash = bcrypt.hashSync(password, 12);
-    const result = db.prepare(
-      `INSERT INTO users (name, business_id, email, phone, password_hash, role, department, is_active)
-       VALUES (?, ?, ?, ?, ?, 'employee', 'Housekeeping', 0)`
-     ).run(`${firstName.trim()} ${familyName.trim()}`, businessId.trim(), email, phone.trim(), hash);
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    db.prepare('INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(result.lastInsertRowid, hashToken(rawToken), new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
-    if (process.env.FRONTEND_URL && process.env.SMTP_HOST && process.env.SMTP_FROM) {
-      const verifyUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/verify-email.html?token=${rawToken}`;
-      sendEmail({ to: email, subject: 'Verify your Shift & Care email', text: `Verify your email within 24 hours: ${verifyUrl}` });
+    const invite = db.prepare('SELECT * FROM invites WHERE token_hash = ?').get(hashToken(req.body.token));
+    if (!invite || invite.used_at || new Date(invite.expires_at) < new Date()) {
+      return res.status(401).json({ error: 'This invite link is invalid or expired' });
     }
 
-    res.status(201).json({ id: result.lastInsertRowid, message: 'Signup received. An administrator must activate your account before you can sign in.' });
+    const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(invite.email);
+    const existingBusinessId = db.prepare('SELECT id FROM users WHERE business_id = ?').get(req.body.businessId.trim());
+    if (existingEmail || existingBusinessId) return res.status(409).json({ error: 'That email or business ID is already registered' });
+
+    const hash = bcrypt.hashSync(req.body.password, 12);
+    const accept = db.transaction(() => {
+      const result = db.prepare(
+        `INSERT INTO users (name, business_id, email, phone, password_hash, role, department, is_active, email_verified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))`
+      ).run(`${req.body.firstName.trim()} ${req.body.familyName.trim()}`, req.body.businessId.trim(), invite.email, req.body.phone.trim(), hash, invite.role, invite.department);
+      db.prepare("UPDATE invites SET used_at = datetime('now'), used_by = ? WHERE id = ?").run(result.lastInsertRowid, invite.id);
+      return result.lastInsertRowid;
+    });
+    const newUserId = accept();
+    recordAudit({ actorUserId: newUserId, action: 'invite-accepted', targetUserId: newUserId, request: req });
+
+    res.status(201).json({ message: 'Account created. You can now sign in.' });
   }
 );
 

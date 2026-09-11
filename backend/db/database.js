@@ -89,6 +89,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('employee','manager','admin')) DEFAULT 'employee',
+  department TEXT DEFAULT 'Housekeeping',
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  used_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -219,6 +232,7 @@ CREATE INDEX IF NOT EXISTS idx_email_verification_token ON email_verification_to
 CREATE INDEX IF NOT EXISTS idx_two_factor_challenge ON two_factor_challenges(token_hash);
 CREATE INDEX IF NOT EXISTS idx_login_history_user ON login_history(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token_hash);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_shift_requests_status ON shift_requests(status);
 CREATE INDEX IF NOT EXISTS idx_schedules_employee_date ON schedules(employee_id, shift_date);
