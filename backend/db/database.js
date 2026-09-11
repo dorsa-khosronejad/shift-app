@@ -260,6 +260,14 @@ if (!userColumns.includes('two_factor_enabled')) {
   db.exec('ALTER TABLE users ADD COLUMN two_factor_enabled INTEGER NOT NULL DEFAULT 0');
 }
 
+const wellbeingColumns = db.prepare('PRAGMA table_info(wellbeing_reports)').all().map((column) => column.name);
+if (!wellbeingColumns.includes('is_anonymous')) {
+  db.exec('ALTER TABLE wellbeing_reports ADD COLUMN is_anonymous INTEGER NOT NULL DEFAULT 0');
+}
+if (!wellbeingColumns.includes('manager_response')) {
+  db.exec('ALTER TABLE wellbeing_reports ADD COLUMN manager_response TEXT');
+}
+
 // ---------- Seed demo data (only if empty) ----------
 
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;

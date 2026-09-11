@@ -39,6 +39,7 @@
       <div class="alert alert-error alert-hidden" id="clockError"></div>
       <div class="clock-status"><div class="status-text" id="statusText"><span class="status-dot off"></span> Checking status…</div><button class="btn-primary" id="clockBtn" disabled>—</button><button class="btn-outline" id="breakBtn" disabled>Start break</button></div>
       <div class="field" style="margin-top:16px"><label for="clockOutNote">Shift note (optional)</label><input id="clockOutNote" maxlength="500" placeholder="Anything your manager should know about this shift?"></div>
+      <p class="helper-text" id="syncStatus"></p>
     </div>
 
     <div class="panel">
@@ -51,8 +52,9 @@
     </div>
 
     <div class="panel">
-      <h3>Rate your completed shifts</h3>
-      <p style="margin:0 0 12px">Private feedback helps improve the workday.</p>
+      <h3>Rate your shift</h3>
+      <p style="margin:0 0 12px">Choose a date to rate that day's completed shift. Updating a rating replaces your previous one.</p>
+      <div class="field"><label for="feedbackDate">Date</label><input id="feedbackDate" type="date"></div>
       <div id="feedbackForms"></div>
     </div>
 
@@ -60,7 +62,7 @@
 
     <div id="tab-schedule" class="tab-panel hidden">
 
-    <div class="panel"><h3>Weekly hours</h3><div id="weeklyHoursSummary">Loading…</div></div>
+    <div class="panel"><h3>Weekly hours</h3><div id="weeklyHoursSummary" class="weekly-hours-summary">Loading…</div></div>
 
     <div class="panel"><h3>Taken shifts</h3><p style="margin:0 0 12px">Choose a date to see your assigned shifts.</p><div class="field"><label for="scheduleDateFilter">Date</label><input id="scheduleDateFilter" type="date"></div><table><thead><tr><th>Date</th><th>Time</th><th>Note</th></tr></thead><tbody id="scheduleBody"></tbody></table><div class="empty-state hidden" id="scheduleEmpty">No shifts on this date.</div></div>
 
@@ -137,8 +139,11 @@
           <label for="description">What's going on?</label>
           <textarea id="description" rows="3" required placeholder="Briefly describe it — no need for medical details, just what happened and where."></textarea>
         </div>
+        <div class="field"><label><input type="checkbox" id="reportAnonymous" style="width:auto;display:inline-block"> Submit anonymously (hidden from your manager)</label></div>
         <button type="submit" class="btn-outline">Send to manager</button>
       </form>
+      <table style="margin-top:18px"><thead><tr><th>Category</th><th>Status</th><th>Manager follow-up</th></tr></thead><tbody id="myReportsBody"></tbody></table>
+      <div class="empty-state hidden" id="myReportsEmpty">No feedback sent yet.</div>
     </div>
 
     </div>
@@ -172,6 +177,9 @@ async function init() {
   if (!user) return;
   document.getElementById('userName').textContent = user.name;
   await mountNotifications(document.getElementById('notificationArea'));
+  document.getElementById('feedbackDate').value = new Date().toLocaleDateString('en-CA');
+  updateSyncStatus();
+  await syncOfflineQueue();
   await loadStatus();
   await loadSchedule();
   await loadWeeklyHours();
@@ -182,6 +190,7 @@ async function init() {
   await loadOpenShifts();
   await loadRequests();
   await loadTeamSchedule();
+  await loadMyReports();
 }
 
 
@@ -207,7 +216,7 @@ async function loadSchedule() {
   document.getElementById('scheduleEmpty').classList.toggle('hidden', filtered.length > 0);
 }
 
-async function loadWeeklyHours() { const summary = await (await apiFetch('/shifts/summary/mine-weekly')).json(); const warning = summary.overtimeHours > 0 ? ' <span class="tag tag-open">Overtime warning</span>' : ''; document.getElementById('weeklyHoursSummary').innerHTML = `<strong>${summary.hours} / ${summary.targetHours} hours</strong>${warning}<p class="helper-text">${summary.breakMinutes} break minutes deducted · Week ${summary.weekStart.slice(0, 10)} to ${summary.weekEnd.slice(0, 10)}</p>`; }
+async function loadWeeklyHours() { const summary = await (await apiFetch('/shifts/summary/mine-weekly')).json(); const warning = summary.overtimeHours > 0 ? ' <span class="tag tag-open">Overtime warning</span>' : ''; document.getElementById('weeklyHoursSummary').innerHTML = `<div><strong>${summary.hours} / ${summary.targetHours} hours</strong>${warning}</div><p class="helper-text" style="margin-top:10px">${summary.breakMinutes} break minutes deducted · Week ${summary.weekStart.slice(0, 10)} to ${summary.weekEnd.slice(0, 10)}</p>`; }
 
 async function loadProfile() { const { user } = await (await apiFetch('/users/me')).json(); document.getElementById('profileEmail').value = user.email; document.getElementById('profilePhone').value = user.phone || ''; document.getElementById('profileBusinessId').value = user.business_id || user.businessId || ''; }
 
@@ -218,6 +227,7 @@ async function loadStatus() {
   const data = await res.json();
   currentlyClockedIn = data.currentlyClockedIn;
   renderStatus();
+  await loadFeedbackMine();
   renderHistory(data.entries);
   const breakData = await (await apiFetch('/shifts/breaks/mine')).json();
   const onBreak = breakData.breaks.some((item) => !item.ended_at);
@@ -259,36 +269,66 @@ function renderHistory(entries) {
 
   if (!entries.length) {
     empty.classList.remove('hidden');
-    return;
+  } else {
+    empty.classList.add('hidden');
+    for (const e of entries) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${formatDateTime(e.clock_in)}</td>
+        <td>${e.clock_out ? formatDateTime(e.clock_out) : '—'}</td>
+        <td>${formatDuration(e.clock_in, e.clock_out)}</td>
+      `;
+      body.appendChild(tr);
+    }
   }
-  empty.classList.add('hidden');
-
-  for (const e of entries) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${formatDateTime(e.clock_in)}</td>
-      <td>${e.clock_out ? formatDateTime(e.clock_out) : '—'}</td>
-      <td>${formatDuration(e.clock_in, e.clock_out)}</td>
-    `;
-    body.appendChild(tr);
-  }
-  renderFeedback(entries);
+  shiftHistoryEntries = entries;
+  renderFeedbackForDate();
 }
 
-function renderFeedback(entries) {
-  document.getElementById('feedbackForms').innerHTML = entries.filter((entry) => entry.clock_out).slice(0, 5).map((entry) => `
+let shiftHistoryEntries = [];
+let feedbackByEntry = {};
+
+async function loadFeedbackMine() {
+  const { feedback } = await (await apiFetch('/shifts/feedback/mine')).json();
+  feedbackByEntry = Object.fromEntries(feedback.map((item) => [item.time_entry_id, item]));
+}
+
+function renderFeedbackForDate() {
+  const selectedDate = document.getElementById('feedbackDate').value;
+  const shiftsOnDate = shiftHistoryEntries.filter((entry) => entry.clock_out && new Date(entry.clock_in.replace(' ', 'T') + 'Z').toLocaleDateString('en-CA') === selectedDate);
+  const container = document.getElementById('feedbackForms');
+
+  if (!shiftsOnDate.length) {
+    container.innerHTML = '<div class="empty-state">No completed shift on this date yet.</div>';
+    return;
+  }
+
+  container.innerHTML = shiftsOnDate.map((entry) => {
+    const existing = feedbackByEntry[entry.id];
+    return `
     <form class="feedback-form" data-entry-id="${entry.id}" style="margin-bottom:12px">
       <strong>${formatDateTime(entry.clock_in)}</strong>
-      <select name="rating" required><option value="">Rating</option><option value="5">5 - Great</option><option value="4">4 - Good</option><option value="3">3 - Okay</option><option value="2">2 - Difficult</option><option value="1">1 - Very difficult</option></select>
-      <input name="comment" maxlength="500" placeholder="Optional comment">
-      <button class="btn-outline" type="submit">Send feedback</button>
-    </form>`).join('');
+      <select name="rating" required>
+        <option value="">Rating</option>
+        <option value="5" ${existing?.rating === 5 ? 'selected' : ''}>5 - Great</option>
+        <option value="4" ${existing?.rating === 4 ? 'selected' : ''}>4 - Good</option>
+        <option value="3" ${existing?.rating === 3 ? 'selected' : ''}>3 - Okay</option>
+        <option value="2" ${existing?.rating === 2 ? 'selected' : ''}>2 - Difficult</option>
+        <option value="1" ${existing?.rating === 1 ? 'selected' : ''}>1 - Very difficult</option>
+      </select>
+      <input name="comment" maxlength="500" placeholder="Optional comment" value="${existing?.comment || ''}">
+      <button class="btn-outline" type="submit">${existing ? 'Update feedback' : 'Send feedback'}</button>
+    </form>`;
+  }).join('');
+
   document.querySelectorAll('.feedback-form').forEach((form) => form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const response = await apiFetch('/shifts/feedback', { method: 'POST', body: JSON.stringify({ timeEntryId: form.dataset.entryId, rating: form.rating.value, comment: form.comment.value }) });
-    if (response.ok) form.remove();
+    if (response.ok) { await loadFeedbackMine(); renderFeedbackForDate(); }
   }));
 }
+
+document.getElementById('feedbackDate').addEventListener('change', renderFeedbackForDate);
 
 document.getElementById('clockBtn').addEventListener('click', async () => {
   const errorBox = document.getElementById('clockError');
@@ -297,7 +337,16 @@ document.getElementById('clockBtn').addEventListener('click', async () => {
   btn.disabled = true;
 
   const endpoint = currentlyClockedIn ? '/shifts/clock-out' : '/shifts/clock-in';
-  const res = await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({ note: document.getElementById('clockOutNote').value }) });
+  const options = { method: 'POST', body: JSON.stringify({ note: document.getElementById('clockOutNote').value }) };
+  const res = await apiFetchOrQueue(endpoint, options, endpoint);
+
+  if (!res) {
+    // Offline: flip the button state optimistically; the real state syncs once back online.
+    currentlyClockedIn = !currentlyClockedIn;
+    renderStatus();
+    return;
+  }
+
   const data = await res.json();
 
   if (!res.ok) {
@@ -363,14 +412,25 @@ document.getElementById('reportForm').addEventListener('submit', async (e) => {
     body: JSON.stringify({
       category: document.getElementById('category').value,
       description: document.getElementById('description').value,
+      isAnonymous: document.getElementById('reportAnonymous').checked,
     }),
   });
 
   if (res.ok) {
     document.getElementById('description').value = '';
+    document.getElementById('reportAnonymous').checked = false;
     successBox.classList.remove('alert-hidden');
+    await loadMyReports();
   }
 });
+
+async function loadMyReports() {
+  const { reports } = await (await apiFetch('/users/wellbeing-reports/mine')).json();
+  const body = document.getElementById('myReportsBody');
+  const empty = document.getElementById('myReportsEmpty');
+  body.innerHTML = reports.map((report) => `<tr><td style="text-transform:capitalize">${report.category}</td><td><span class="tag tag-${report.status}">${report.status}</span></td><td>${report.manager_response || '—'}</td></tr>`).join('');
+  empty.classList.toggle('hidden', reports.length > 0);
+}
 
 init();
 </script>

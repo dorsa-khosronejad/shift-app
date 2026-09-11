@@ -361,6 +361,7 @@ router.patch('/sick-leave/:id', requireAuth, requireRole('manager', 'admin'), [
 });
 
 // ---------- Shift feedback ----------
+// Upsert by design: an employee can revise their rating for the same shift.
 router.post('/feedback', requireAuth, [
   body('timeEntryId').isInt({ min: 1 }),
   body('rating').isInt({ min: 1, max: 5 }),
@@ -370,15 +371,16 @@ router.post('/feedback', requireAuth, [
   if (!errors.isEmpty()) return res.status(400).json({ error: 'Choose a rating from 1 to 5' });
   const entry = db.prepare('SELECT id FROM time_entries WHERE id = ? AND user_id = ? AND clock_out IS NOT NULL').get(req.body.timeEntryId, req.user.id);
   if (!entry) return res.status(404).json({ error: 'Completed shift not found' });
-  try {
-    const result = db.prepare('INSERT INTO shift_feedback (time_entry_id, user_id, rating, comment) VALUES (?, ?, ?, ?)').run(
-      entry.id, req.user.id, req.body.rating, req.body.comment?.trim() || null
-    );
-    res.status(201).json({ id: result.lastInsertRowid });
-  } catch (error) {
-    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ error: 'Feedback already submitted for this shift' });
-    throw error;
-  }
+  db.prepare(
+    `INSERT INTO shift_feedback (time_entry_id, user_id, rating, comment) VALUES (?, ?, ?, ?)
+     ON CONFLICT(time_entry_id) DO UPDATE SET rating = excluded.rating, comment = excluded.comment`
+  ).run(entry.id, req.user.id, req.body.rating, req.body.comment?.trim() || null);
+  res.json({ message: 'Feedback saved' });
+});
+
+router.get('/feedback/mine', requireAuth, (req, res) => {
+  const feedback = db.prepare('SELECT time_entry_id, rating, comment FROM shift_feedback WHERE user_id = ?').all(req.user.id);
+  res.json({ feedback });
 });
 
 router.get('/feedback', requireAuth, requireRole('manager', 'admin'), (req, res) => {

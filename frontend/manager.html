@@ -123,10 +123,17 @@
     </div>
 
     <div class="panel">
+      <h3>Team wellbeing trends</h3>
+      <p style="margin:0 0 12px">Feedback volume by category and by week, including anonymous submissions.</p>
+      <div id="trendsByCategory"></div>
+      <div id="trendsByWeek" class="helper-text" style="margin-top:12px"></div>
+    </div>
+
+    <div class="panel">
       <h3>Reports from staff</h3>
-      <p style="margin:0 0 12px">Workload, ergonomics, and incident flags.</p>
+      <p style="margin:0 0 12px">Workload, ergonomics, and incident flags. Anonymous reports hide the sender's identity.</p>
       <table>
-        <thead><tr><th>Staff</th><th>Category</th><th>Description</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Staff</th><th>Category</th><th>Description</th><th>Status</th><th>Follow-up</th><th></th></tr></thead>
         <tbody id="reportsBody"></tbody>
       </table>
       <div class="empty-state hidden" id="reportsEmpty">Nothing reported yet.</div>
@@ -156,6 +163,7 @@ async function init() {
   await loadDashboard();
   await loadTeam();
   await loadReports();
+  await loadTrends();
   await loadRequests();
   await loadSchedule();
   await loadLeave();
@@ -303,10 +311,11 @@ async function loadReports() {
   for (const r of reports) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${r.user_name}</td>
+      <td>${r.user_name}${r.is_anonymous ? ' <span class="tag tag-acknowledged">anonymous</span>' : ''}</td>
       <td style="text-transform:capitalize">${r.category}</td>
       <td>${r.description}</td>
       <td><span class="tag tag-${r.status}">${r.status}</span></td>
+      <td><input class="followup-input" data-followup-id="${r.id}" maxlength="1000" placeholder="Note for the employee" value="${r.manager_response || ''}"></td>
       <td>
         ${r.status !== 'resolved'
           ? `<button class="btn-outline" style="padding:5px 10px;font-size:13px" data-id="${r.id}" data-next="${r.status === 'open' ? 'acknowledged' : 'resolved'}">
@@ -320,13 +329,20 @@ async function loadReports() {
 
   body.querySelectorAll('button[data-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      const response = body.querySelector(`[data-followup-id="${btn.dataset.id}"]`).value;
       await apiFetch(`/users/wellbeing-reports/${btn.dataset.id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: btn.dataset.next }),
+        body: JSON.stringify({ status: btn.dataset.next, response }),
       });
       await loadReports();
     });
   });
+}
+
+async function loadTrends() {
+  const { byCategory, byWeek } = await (await apiFetch('/users/wellbeing-reports/trends')).json();
+  document.getElementById('trendsByCategory').innerHTML = byCategory.map((item) => `<div class="target-row"><span style="text-transform:capitalize">${item.category}</span><span>${item.total} total</span><span>${item.open} open</span></div>`).join('') || 'No feedback yet.';
+  document.getElementById('trendsByWeek').textContent = byWeek.length ? `Last 8 weeks: ${byWeek.map((week) => `${week.week} (${week.total})`).join(', ')}` : 'No feedback in the last 8 weeks.';
 }
 
 init();

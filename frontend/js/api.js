@@ -63,6 +63,73 @@ async function tryRefresh() {
   }
 }
 
+// ---------- Offline support ----------
+// Queues clock-in/out requests locally when the network is unavailable, and
+// replays them in order once the connection returns.
+const OFFLINE_QUEUE_KEY = 'shiftOfflineQueue';
+
+function getOfflineQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function setOfflineQueue(queue) {
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+}
+
+function queueOfflineRequest(path, options, label) {
+  const queue = getOfflineQueue();
+  queue.push({ path, options, label, queuedAt: new Date().toISOString() });
+  setOfflineQueue(queue);
+  updateSyncStatus();
+}
+
+// Attempts the request normally; if the network itself is unavailable
+// (not just a non-2xx response), the request is queued instead of thrown.
+async function apiFetchOrQueue(path, options, label) {
+  try {
+    return await apiFetch(path, options);
+  } catch (networkError) {
+    queueOfflineRequest(path, options, label);
+    return null;
+  }
+}
+
+async function syncOfflineQueue() {
+  const remaining = getOfflineQueue();
+  while (remaining.length) {
+    try {
+      await apiFetch(remaining[0].path, remaining[0].options);
+      remaining.shift();
+    } catch {
+      break; // still offline; keep the rest queued for the next attempt
+    }
+  }
+  setOfflineQueue(remaining);
+  updateSyncStatus();
+  return remaining.length === 0;
+}
+
+function updateSyncStatus() {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  const pending = getOfflineQueue().length;
+  if (!navigator.onLine) {
+    el.textContent = pending ? `Offline — ${pending} shift update(s) will sync automatically when you're back online.` : "Offline — clock actions will be saved and synced automatically.";
+  } else if (pending) {
+    el.textContent = `Syncing ${pending} shift update(s)…`;
+  } else {
+    el.textContent = '';
+  }
+}
+
+window.addEventListener('online', syncOfflineQueue);
+window.addEventListener('offline', updateSyncStatus);
+
+
 // Call this at the top of every protected page. Tries to restore a session
 // from the refresh cookie; if that fails, sends the user back to login.
 async function requireSession(allowedRoles = null) {

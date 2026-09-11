@@ -120,8 +120,8 @@ router.post(
     }
 
     const result = db
-      .prepare('INSERT INTO wellbeing_reports (user_id, category, description) VALUES (?, ?, ?)')
-      .run(req.user.id, req.body.category, req.body.description);
+      .prepare('INSERT INTO wellbeing_reports (user_id, category, description, is_anonymous) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, req.body.category, req.body.description, req.body.isAnonymous ? 1 : 0);
 
     res.status(201).json({ id: result.lastInsertRowid });
   }
@@ -134,6 +134,20 @@ router.get('/wellbeing-reports/mine', requireAuth, (req, res) => {
   res.json({ reports });
 });
 
+router.get('/wellbeing-reports/trends', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const byCategory = db.prepare(`
+    SELECT category, COUNT(*) AS total, SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open
+    FROM wellbeing_reports GROUP BY category
+  `).all();
+  const byWeek = db.prepare(`
+    SELECT strftime('%Y-%W', created_at) AS week, COUNT(*) AS total
+    FROM wellbeing_reports
+    WHERE created_at >= datetime('now', '-56 days')
+    GROUP BY week ORDER BY week
+  `).all();
+  res.json({ byCategory, byWeek });
+});
+
 router.get(
   '/wellbeing-reports',
   requireAuth,
@@ -141,7 +155,9 @@ router.get(
   (req, res) => {
     const reports = db
       .prepare(
-        `SELECT wr.*, u.name AS user_name, u.department
+        `SELECT wr.*,
+                CASE WHEN wr.is_anonymous = 1 THEN 'Anonymous' ELSE u.name END AS user_name,
+                CASE WHEN wr.is_anonymous = 1 THEN NULL ELSE u.department END AS department
          FROM wellbeing_reports wr
          JOIN users u ON u.id = wr.user_id
          ORDER BY wr.created_at DESC`
@@ -155,13 +171,17 @@ router.patch(
   '/wellbeing-reports/:id/status',
   requireAuth,
   requireRole('manager', 'admin'),
-  [body('status').isIn(['open', 'acknowledged', 'resolved'])],
+  [
+    body('status').isIn(['open', 'acknowledged', 'resolved']),
+    body('response').optional().trim().isLength({ max: 1000 }),
+  ],
   (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: 'Invalid status' });
     }
-    db.prepare('UPDATE wellbeing_reports SET status = ? WHERE id = ?').run(req.body.status, req.params.id);
+    db.prepare('UPDATE wellbeing_reports SET status = ?, manager_response = COALESCE(?, manager_response) WHERE id = ?')
+      .run(req.body.status, req.body.response?.trim() || null, req.params.id);
     recordAudit({ actorUserId: req.user.id, action: 'wellbeing-report-status-changed', details: { reportId: Number(req.params.id), status: req.body.status }, request: req });
     res.json({ message: 'Updated' });
   }
