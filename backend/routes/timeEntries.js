@@ -556,6 +556,38 @@ router.get('/summary/mine-weekly', requireAuth, (req, res) => {
   res.json({ weekStart: start, weekEnd: end, hours, breakMinutes, targetHours, overtimeHours: Math.max(0, Math.round((hours - targetHours) * 100) / 100), openShift });
 });
 
+// ---------- GET /api/shifts/reports ----------
+router.get('/reports', requireAuth, requireRole('manager', 'admin'), (req, res) => {
+  const from = isIsoDate(req.query.from) ? req.query.from : new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const to = isIsoDate(req.query.to) ? req.query.to : new Date().toISOString().slice(0, 10);
+  const entries = db.prepare(
+    `SELECT te.id, te.user_id, u.name, u.business_id, u.department, te.clock_in, te.clock_out
+     FROM time_entries te JOIN users u ON u.id = te.user_id
+     WHERE date(te.clock_in) BETWEEN ? AND ? ORDER BY u.name, te.clock_in`
+  ).all(from, to);
+  const hoursByEmployee = {};
+  for (const entry of entries) {
+    const item = hoursByEmployee[entry.user_id] ||= { userId: entry.user_id, name: entry.name, businessId: entry.business_id, department: entry.department, shifts: 0, paidMinutes: 0, missingClockOuts: 0 };
+    item.shifts += 1;
+    if (entry.clock_out) item.paidMinutes += Math.max(0, minutesBetween(entry.clock_in, entry.clock_out) - breakMinutesForEntry(entry.id));
+    else item.missingClockOuts += 1;
+  }
+  const attendance = db.prepare(
+    `SELECT date(clock_in) AS date, COUNT(DISTINCT user_id) AS employees, SUM(CASE WHEN clock_out IS NULL THEN 1 ELSE 0 END) AS openShifts
+     FROM time_entries WHERE date(clock_in) BETWEEN ? AND ? GROUP BY date(clock_in) ORDER BY date`
+  ).all(from, to);
+  const leave = db.prepare(
+    `SELECT sl.start_date, sl.end_date, u.name AS employee_name, u.department
+     FROM sick_leave_requests sl JOIN users u ON u.id = sl.user_id
+     WHERE sl.status = 'approved' AND sl.end_date >= ? AND sl.start_date <= ? ORDER BY sl.start_date`
+  ).all(from, to);
+  const feedback = db.prepare(
+    `SELECT sf.rating, COUNT(*) AS total FROM shift_feedback sf
+     WHERE date(sf.created_at) BETWEEN ? AND ? GROUP BY sf.rating ORDER BY sf.rating DESC`
+  ).all(from, to);
+  res.json({ from, to, hoursByEmployee: Object.values(hoursByEmployee).map((item) => ({ ...item, paidHours: Math.round(item.paidMinutes / 60 * 100) / 100 })), attendance, leave, feedback });
+});
+
 // ---------- GET /api/shifts/export ----------
 // Managers and admins: CSV download for payroll. Optional ?from=&to= as
 // 'YYYY-MM-DD'; defaults to the last 30 days.
@@ -565,7 +597,7 @@ router.get('/export', requireAuth, requireRole('manager', 'admin'), (req, res) =
 
   const rows = db
     .prepare(
-      `SELECT te.id, te.user_id, u.name AS user_name, u.department, te.clock_in, te.clock_out
+      `SELECT te.id, te.user_id, u.name AS user_name, u.business_id, u.department, te.clock_in, te.clock_out, te.note
        FROM time_entries te
        JOIN users u ON u.id = te.user_id
        WHERE te.clock_in >= ? AND te.clock_in <= ?

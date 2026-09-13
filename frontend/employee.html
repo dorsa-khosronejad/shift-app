@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
 <title>Shift &amp; Care · My shifts</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -49,6 +50,13 @@
         <tbody id="historyBody"></tbody>
       </table>
       <div class="empty-state hidden" id="historyEmpty">No shifts logged yet.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Activity</h3>
+      <p style="margin:0 0 12px">Optional phone motion estimate. Keep this page open while walking.</p>
+      <button class="btn-outline" id="startActivity" type="button">Allow motion &amp; start</button>
+      <div id="activitySummary" class="helper-text" style="margin-top:12px">No motion data collected.</div>
     </div>
 
     <div class="panel">
@@ -153,6 +161,7 @@
     <div class="panel"><h3>My profile</h3><form id="profileForm"><div class="field"><label for="profileEmail">Email</label><input id="profileEmail" type="email" disabled></div><div class="field"><label for="profilePhone">Phone</label><input id="profilePhone" maxlength="40"></div><div class="field"><label for="profileBusinessId">Business ID</label><input id="profileBusinessId" maxlength="60"></div><button class="btn-outline" type="submit">Save profile</button></form><div class="alert alert-success alert-hidden" id="profileSuccess">Profile updated.</div></div>
 
     <div class="panel"><h3>Account security</h3><p>Protect sign-in with an authenticator app and review recent login activity.</p><button class="btn-outline" id="setupTwoFactor" type="button">Set up two-factor authentication</button><div id="twoFactorSetup" class="hidden"><p>Enter this secret manually in your authenticator app:</p><code id="twoFactorSecret"></code><div class="field" style="margin-top:12px"><label for="twoFactorCode">6-digit code</label><input id="twoFactorCode" inputmode="numeric" maxlength="6"></div><button class="btn-primary" id="enableTwoFactor" type="button">Enable 2FA</button></div><div class="alert alert-success alert-hidden" id="securitySuccess"></div><table style="margin-top:18px"><thead><tr><th>Time</th><th>Result</th><th>Method</th><th>IP</th></tr></thead><tbody id="loginHistoryBody"></tbody></table></div>
+      <div class="panel"><h3>Notification Permissions</h3><p>Manage your notification preferences for mobile use.</p><button class="btn-outline" id="requestNotificationPermission" type="button">Request Notification Permission</button></div>
 
     </div>
 
@@ -162,6 +171,9 @@
 <script src="js/api.js"></script>
 <script>
 let currentlyClockedIn = false;
+let activitySteps = 0;
+let activityLastPeak = 0;
+let activityListening = false;
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -191,6 +203,37 @@ async function init() {
   await loadRequests();
   await loadTeamSchedule();
   await loadMyReports();
+  document.getElementById('startActivity').addEventListener('click', startActivityTracking);
+  document.getElementById('requestNotificationPermission').addEventListener('click', async () => {
+    const result = await enableNotifications();
+    document.getElementById('requestNotificationPermission').textContent = result === 'granted' ? 'Notifications enabled' : `Notifications: ${result}`;
+  });
+}
+
+async function startActivityTracking() {
+  if (typeof DeviceMotionEvent === 'undefined') {
+    document.getElementById('activitySummary').textContent = 'Motion tracking is not supported by this browser.';
+    return;
+  }
+  if (typeof DeviceMotionEvent.requestPermission === 'function') {
+    const permission = await DeviceMotionEvent.requestPermission();
+    if (permission !== 'granted') { document.getElementById('activitySummary').textContent = 'Motion permission was not granted.'; return; }
+  }
+  if (activityListening) return;
+  activityListening = true;
+  window.addEventListener('devicemotion', (event) => {
+    const acceleration = event.accelerationIncludingGravity;
+    if (!acceleration) return;
+    const magnitude = Math.sqrt((acceleration.x || 0) ** 2 + (acceleration.y || 0) ** 2 + (acceleration.z || 0) ** 2);
+    const now = Date.now();
+    if (magnitude > 12.5 && now - activityLastPeak > 450) {
+      activitySteps += 1;
+      activityLastPeak = now;
+      const calories = Math.round(activitySteps * 0.04 * 10) / 10;
+      document.getElementById('activitySummary').textContent = `${activitySteps} estimated steps · ${calories} estimated calories`;
+    }
+  });
+  document.getElementById('startActivity').textContent = 'Motion tracking on';
 }
 
 

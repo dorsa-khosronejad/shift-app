@@ -1,6 +1,10 @@
 // API_BASE points the deployed frontend at the Railway backend.
 const API_BASE = 'https://shift-app-production-de38.up.railway.app/api';
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+
 // The access token lives ONLY in memory (a JS variable), never in
 // localStorage. This means it disappears on page refresh — that's
 // intentional and handled by silently calling /auth/refresh on load,
@@ -124,6 +128,15 @@ function updateSyncStatus() {
   } else {
     el.textContent = '';
   }
+}
+
+async function enableNotifications() {
+  if (!('Notification' in window)) return 'unsupported';
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') {
+    navigator.serviceWorker?.ready.then((registration) => registration.showNotification('Shift & Care', { body: 'Notifications are enabled.' }));
+  }
+  return permission;
 }
 
 window.addEventListener('online', syncOfflineQueue);

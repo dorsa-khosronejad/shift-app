@@ -231,3 +231,9 @@ tr:last-child td { border-bottom: none; }
 @media (max-width: 760px) { .year-calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .helper-text { font-size: 12.5px; color: var(--ink-soft); margin-top: -10px; margin-bottom: 16px; }
+
+@media print {
+  .topbar, .tabs, button, input, .export-row { display: none !important; }
+  .main { max-width: none; padding: 0; }
+  .panel { break-inside: avoid; border: 0; }
+}

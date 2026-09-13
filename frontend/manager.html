@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
 <title>Shift &amp; Care · Team</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -28,6 +29,7 @@
       <button class="tab-btn active" type="button" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" type="button" data-tab="schedule">Schedule</button>
       <button class="tab-btn" type="button" data-tab="payroll">Payroll</button>
+      <button class="tab-btn" type="button" data-tab="reports">Reports</button>
       <button class="tab-btn" type="button" data-tab="approvals">Approvals</button>
       <button class="tab-btn" type="button" data-tab="team">Team</button>
     </div>
@@ -84,6 +86,14 @@
 
     <div class="panel"><h3>Payroll export</h3><p style="margin:0 0 12px">Download paid hours, breaks, overtime, notes, and business IDs as CSV.</p><div class="export-row"><div class="field"><label for="exportFrom">From</label><input id="exportFrom" type="date"></div><div class="field"><label for="exportTo">To</label><input id="exportTo" type="date"></div><button class="btn-primary" id="exportButton" type="button">Download CSV</button></div></div>
 
+    </div>
+
+    <div id="tab-reports" class="tab-panel hidden">
+      <div class="panel"><h3>Reports</h3><div class="export-row"><div class="field"><label for="reportFrom">From</label><input id="reportFrom" type="date"></div><div class="field"><label for="reportTo">To</label><input id="reportTo" type="date"></div><button class="btn-primary" id="loadReportsButton" type="button">Refresh reports</button><button class="btn-outline" id="downloadReportsCsv" type="button">Download CSV</button><button class="btn-outline" id="printReportsPdf" type="button">Print / save PDF</button></div></div>
+      <div class="panel"><h3>Hours by employee</h3><table><thead><tr><th>Employee</th><th>Business ID</th><th>Department</th><th>Shifts</th><th>Paid hours</th><th>Missing clock-outs</th></tr></thead><tbody id="hoursReportBody"></tbody></table></div>
+      <div class="panel"><h3>Attendance trends</h3><table><thead><tr><th>Date</th><th>Employees</th><th>Open shifts</th></tr></thead><tbody id="attendanceReportBody"></tbody></table></div>
+      <div class="panel"><h3>Leave calendar</h3><table><thead><tr><th>Employee</th><th>Department</th><th>Start</th><th>End</th></tr></thead><tbody id="leaveReportBody"></tbody></table></div>
+      <div class="panel"><h3>Feedback ratings</h3><div id="ratingsReportBody"></div></div>
     </div>
 
     <div id="tab-approvals" class="tab-panel hidden">
@@ -171,7 +181,35 @@ async function init() {
   await loadCalendar();
   await loadTargets();
   await loadWeeklySummary();
+  await loadOperationalReports();
 }
+
+let latestOperationalReport = null;
+function reportDates() { return { from: document.getElementById('reportFrom').value, to: document.getElementById('reportTo').value }; }
+async function loadOperationalReports() {
+  const dates = reportDates();
+  const query = new URLSearchParams();
+  if (dates.from) query.set('from', dates.from);
+  if (dates.to) query.set('to', dates.to);
+  const response = await apiFetch(`/shifts/reports?${query}`);
+  if (!response.ok) return;
+  latestOperationalReport = await response.json();
+  const report = latestOperationalReport;
+  document.getElementById('hoursReportBody').innerHTML = report.hoursByEmployee.map((item) => `<tr><td>${item.name}</td><td>${item.businessId || '—'}</td><td>${item.department}</td><td>${item.shifts}</td><td>${item.paidHours}</td><td>${item.missingClockOuts}</td></tr>`).join('') || '<tr><td colspan="6">No hours found.</td></tr>';
+  document.getElementById('attendanceReportBody').innerHTML = report.attendance.map((item) => `<tr><td>${item.date}</td><td>${item.employees}</td><td>${item.openShifts}</td></tr>`).join('') || '<tr><td colspan="3">No attendance data.</td></tr>';
+  document.getElementById('leaveReportBody').innerHTML = report.leave.map((item) => `<tr><td>${item.employee_name}</td><td>${item.department}</td><td>${item.start_date}</td><td>${item.end_date}</td></tr>`).join('') || '<tr><td colspan="4">No approved leave.</td></tr>';
+  document.getElementById('ratingsReportBody').innerHTML = report.feedback.map((item) => `<span class="tag tag-acknowledged" style="margin-right:8px">${item.rating} stars: ${item.total}</span>`).join('') || 'No ratings in this period.';
+}
+function csvCell(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
+document.getElementById('loadReportsButton').addEventListener('click', loadOperationalReports);
+document.getElementById('downloadReportsCsv').addEventListener('click', () => {
+  if (!latestOperationalReport) return;
+  const rows = [['Employee', 'Business ID', 'Department', 'Shifts', 'Paid hours', 'Missing clock-outs']];
+  latestOperationalReport.hoursByEmployee.forEach((item) => rows.push([item.name, item.businessId, item.department, item.shifts, item.paidHours, item.missingClockOuts]));
+  const blob = new Blob([rows.map((row) => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `shift-report-${latestOperationalReport.from}-to-${latestOperationalReport.to}.csv`; link.click(); URL.revokeObjectURL(link.href);
+});
+document.getElementById('printReportsPdf').addEventListener('click', () => { window.print(); });
 
 async function loadTargets() {
   const { targets } = await (await apiFetch('/shifts/targets')).json();
