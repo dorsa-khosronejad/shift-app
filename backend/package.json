@@ -7,7 +7,7 @@
     "start": "node server.js",
     "backup": "node scripts/backup.js",
     "restore": "node scripts/restore.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test tests/**/*.test.js"
   },
   "keywords": [],
   "author": "",

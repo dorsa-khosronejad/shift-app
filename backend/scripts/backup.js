@@ -13,8 +13,8 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '..', 'db', 'shifts.db');
-const BACKUP_DIR = path.join(__dirname, '..', 'backups');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'db', 'shifts.db');
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, '..', 'backups');
 const RETENTION_DAYS = parseInt(process.env.BACKUP_RETENTION_DAYS, 10) || 30;
 
 function timestamp() {

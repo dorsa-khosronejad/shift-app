@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const db = require('../db/database');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { notifyUser } = require('../utils/notifications');
+const { recordAudit } = require('../utils/security');
 
 const router = express.Router();
 
@@ -175,6 +176,7 @@ router.patch('/requests/:id', requireAuth, requireRole('manager', 'admin'), [
     }
   });
   review();
+  recordAudit({ actorUserId: req.user.id, action: 'manual-correction-reviewed', targetUserId: request.user_id, details: { requestId: request.id, status: req.body.status }, request: req });
   notifyUser(request.user_id, {
     type: 'manual-correction',
     title: `Manual correction ${req.body.status}`,
@@ -230,6 +232,7 @@ router.post('/schedule', requireAuth, requireRole('manager', 'admin'), [
     title: 'New shift scheduled',
     message: `You are scheduled on ${req.body.shiftDate} from ${req.body.startTime} to ${req.body.endTime}.`,
   });
+  recordAudit({ actorUserId: req.user.id, action: 'schedule-created', targetUserId: employee.id, details: { scheduleId: result.lastInsertRowid, shiftDate: req.body.shiftDate }, request: req });
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
@@ -241,9 +244,11 @@ router.patch('/schedule/:id', requireAuth, requireRole('manager', 'admin'), [
   const errors = validationResult(req);
   const schedule = db.prepare('SELECT * FROM schedules WHERE id = ?').get(req.params.id);
   if (!schedule) return res.status(404).json({ error: 'Schedule entry not found' });
+  if (req.user.role !== 'admin' && schedule.manager_id !== req.user.id) return res.status(403).json({ error: 'You do not own this schedule entry' });
   if (!errors.isEmpty() || req.body.endTime <= req.body.startTime) return res.status(400).json({ error: 'Enter a valid time range' });
   if (hasScheduleConflict(schedule.employee_id, req.body.shiftDate, req.body.startTime, req.body.endTime, schedule.id)) return res.status(409).json({ error: 'This employee already has an overlapping shift' });
   db.prepare('UPDATE schedules SET shift_date = ?, start_time = ?, end_time = ? WHERE id = ?').run(req.body.shiftDate, req.body.startTime, req.body.endTime, schedule.id);
+  recordAudit({ actorUserId: req.user.id, action: 'schedule-updated', targetUserId: schedule.employee_id, details: { scheduleId: schedule.id, shiftDate: req.body.shiftDate }, request: req });
   res.json({ message: 'Schedule updated' });
 });
 
@@ -302,7 +307,9 @@ router.delete('/unavailable-dates/mine/:id', requireAuth, (req, res) => {
 });
 
 router.delete('/schedule/:id', requireAuth, requireRole('manager', 'admin'), (req, res) => {
-  const result = db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id);
+  const result = req.user.role === 'admin'
+    ? db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id)
+    : db.prepare('DELETE FROM schedules WHERE id = ? AND manager_id = ?').run(req.params.id, req.user.id);
   if (!result.changes) return res.status(404).json({ error: 'Schedule entry not found' });
   res.json({ message: 'Schedule entry removed' });
 });
@@ -352,6 +359,7 @@ router.patch('/sick-leave/:id', requireAuth, requireRole('manager', 'admin'), [
   if (request.status !== 'pending') return res.status(409).json({ error: 'This request was already reviewed' });
   db.prepare("UPDATE sick_leave_requests SET status = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?").run(req.body.status, req.user.id, req.params.id);
   const reviewedRequest = db.prepare('SELECT user_id, start_date FROM sick_leave_requests WHERE id = ?').get(req.params.id);
+  recordAudit({ actorUserId: req.user.id, action: 'sick-leave-reviewed', targetUserId: reviewedRequest.user_id, details: { requestId: Number(req.params.id), status: req.body.status }, request: req });
   notifyUser(reviewedRequest.user_id, {
     type: 'sick-leave',
     title: `Sick leave ${req.body.status}`,
