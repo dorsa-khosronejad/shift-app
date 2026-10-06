@@ -47,6 +47,29 @@ Password recovery sends a one-time link by email. Configure `FRONTEND_URL`,
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and
 `SMTP_FROM` in the backend environment. Do not commit SMTP credentials.
 
+## Tests
+
+Install the backend and root test dependencies, then run the complete suite:
+
+```
+npm --prefix backend install
+npm install
+npm test
+```
+
+The frontend suite runs real browser workflows in Chrome. It uses the macOS
+Google Chrome application by default; set `CHROME_PATH` to another
+Chromium-compatible executable when needed. The tests start isolated local
+servers and a temporary database, so they do not use the configured app data.
+Every run measures frontend coverage by instrumenting the served JavaScript with
+Istanbul and prints a per-file report (also written to `coverage/`). The run
+fails if line, function, or branch coverage drops below 70%, 70%, or 60%. The
+service worker is exercised by a test but cannot report counters, so it is
+listed at 0% rather than being left out of the total.
+The suite is organized under `frontend/tests/`: `support/` owns browser and
+server setup, `commands/` contains reusable user actions, and `specs/` contains
+separate auth, employee, manager, and admin workflows.
+
 ## Demo accounts (seeded automatically)
 
 | Role     | Email                | Password      |
@@ -83,6 +106,20 @@ interview):
   a button is never the actual security boundary.
 - **No public self-registration**: accounts are created by an admin only.
   This is a staff tool with a controlled roster, not a public product.
+
+## What still needs attention
+
+- Integration tests exercise the main authentication, account, timekeeping,
+  scheduling, leave, and reporting workflows. Direct backend tests also cover
+  token and TOTP utilities, auth middleware, notification persistence, and
+  SQLite backup/restore behavior. Coverage is not exhaustive: concurrency,
+  deployment configuration, and frontend flows still need dedicated tests.
+- In production, the refresh cookie uses `sameSite: 'none'` so the Netlify
+  frontend can work with the Railway API across domains. This is a deliberate
+  trade-off that weakens the browser's built-in CSRF protection; the API also
+  checks request origins, but the cookie setting is still worth reviewing.
+- The frontend flows for invitations, scheduling, and claiming an open shift
+  with a button click have not been completed or tested yet.
 
 ## About the "health" feature
 

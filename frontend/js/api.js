@@ -1,5 +1,5 @@
 // API_BASE points the deployed frontend at the Railway backend.
-const API_BASE = 'https://shift-app-production-de38.up.railway.app/api';
+const API_BASE = window.SHIFT_API_BASE || 'https://shift-app-production-de38.up.railway.app/api';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
