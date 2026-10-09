@@ -386,8 +386,10 @@ router.post('/forgot-password', resetLimiter, [
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ error: 'Enter a valid work email and phone number' });
   const user = db.prepare('SELECT id FROM users WHERE email = ? AND phone = ?').get(req.body.email, req.body.phone.trim());
-  if (!user || !process.env.SMTP_HOST || !process.env.FRONTEND_URL || !process.env.SMTP_FROM) {
-    return res.status(user && !process.env.SMTP_HOST ? 503 : 200).json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
+  const emailConfigured = process.env.SMTP_HOST && process.env.FRONTEND_URL && process.env.SMTP_FROM;
+  if (!user || !emailConfigured) {
+    if (user) console.error('Password reset is unavailable because SMTP_HOST, FRONTEND_URL, or SMTP_FROM is not configured.');
+    return res.status(200).json({ message: 'If the details match an account, a reset link will be sent to its email address.' });
   }
   const rawToken = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');

@@ -72,10 +72,11 @@ router.patch(
       return res.status(400).json({ error: "You can't deactivate your own account" });
     }
 
-    db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(
+    const result = db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(
       req.body.is_active ? 1 : 0,
       req.params.id
     );
+    if (!result.changes) return res.status(404).json({ error: 'Account not found' });
     recordAudit({ actorUserId: req.user.id, action: req.body.is_active ? 'account-activated' : 'account-deactivated', targetUserId: Number(req.params.id), request: req });
     res.json({ message: 'Updated' });
   }
@@ -180,8 +181,9 @@ router.patch(
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: 'Invalid status' });
     }
-    db.prepare('UPDATE wellbeing_reports SET status = ?, manager_response = COALESCE(?, manager_response) WHERE id = ?')
+    const result = db.prepare('UPDATE wellbeing_reports SET status = ?, manager_response = COALESCE(?, manager_response) WHERE id = ?')
       .run(req.body.status, req.body.response?.trim() || null, req.params.id);
+    if (!result.changes) return res.status(404).json({ error: 'Wellbeing report not found' });
     recordAudit({ actorUserId: req.user.id, action: 'wellbeing-report-status-changed', details: { reportId: Number(req.params.id), status: req.body.status }, request: req });
     res.json({ message: 'Updated' });
   }

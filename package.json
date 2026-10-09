@@ -3,7 +3,14 @@
   "private": true,
   "scripts": {
     "build": "npm install --prefix backend",
-    "start": "node backend/server.js"
+    "start": "node backend/server.js",
+    "test": "npm --prefix backend test && npm run test:frontend",
+    "test:frontend": "node --test frontend/tests/e2e.test.js"
+  },
+  "devDependencies": {
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-instrument": "^6.0.3",
+    "playwright": "^1.63.0"
   },
   "engines": {
     "node": "22.x"
