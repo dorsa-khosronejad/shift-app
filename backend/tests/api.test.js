@@ -579,11 +579,12 @@ test('profile, notifications, wellbeing privacy, and audit access follow user sc
   const forgotForKnownUser = await jsonRequest('/auth/forgot-password', 'POST', undefined, {
     email: 'employee@demo.local', phone: '+15555550125',
   });
-  assert.equal(forgotForKnownUser.response.status, 503);
+  assert.equal(forgotForKnownUser.response.status, 200);
   const forgotForUnknownUser = await jsonRequest('/auth/forgot-password', 'POST', undefined, {
     email: 'missing@demo.local', phone: '+15555550125',
   });
   assert.equal(forgotForUnknownUser.response.status, 200);
+  assert.deepEqual(forgotForKnownUser.body, forgotForUnknownUser.body);
   const rateLimitedReset = await jsonRequest('/auth/forgot-password', 'POST', undefined, { email: 'bad', phone: 'bad' });
   assert.equal(rateLimitedReset.response.status, 429);
 });

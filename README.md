@@ -118,8 +118,8 @@ interview):
   frontend can work with the Railway API across domains. This is a deliberate
   trade-off that weakens the browser's built-in CSRF protection; the API also
   checks request origins, but the cookie setting is still worth reviewing.
-- The frontend flows for invitations, scheduling, and claiming an open shift
-  with a button click have not been completed or tested yet.
+- Browser tests cover the invitation, scheduling, and open-shift claiming flows.
+  Full visual/accessibility coverage and cross-browser testing remain open.
 
 ## About the "health" feature
 
